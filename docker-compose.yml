@@ -1,0 +1,21 @@
+services:
+  aivg-fp-studio:
+    build:
+      args:
+        - CUDA_VERSION=12.8.1
+        - TORCH_CUDA_ARCH_LIST=Ampere
+      dockerfile: Dockerfile.framepack-studio
+    pull_policy: build
+    container_name: aivg-fp-studio
+    image: blastbeng/aivg-fp-studio:latest
+    restart: unless-stopped
+    ports:
+      - "7860:7860"
+    volumes:
+      - "./framepack-studio/loras:/app/loras"
+      - "./framepack-studio/outputs:/app/outputs"
+      - "./framepack-studio/.framepack:/app/.framepack"
+      - "./framepack-studio/modules/toolbox/model_esrgan:/app/modules/toolbox/model_esrgan"
+      - "./framepack-studio/modules/toolbox/model_rife:/app/modules/toolbox/model_rife"
+      - "$HOME/.cache/huggingface:/app/hf_download"
+    runtime: "nvidia"
