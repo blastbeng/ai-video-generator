@@ -4,3 +4,8 @@ aivg/venv
 framepack-studio/.framepack
 framepack-studio/loras
 framepack-studio/outputs
+MMAudio/weights
+MMAudio/ext_weights
+MMAudio/audio
+MMAudio/playable_video
+MMAudio/outputs

@@ -67,7 +67,7 @@ class Healthcheck(Resource):
 @nsaivg.route('/generate/<int:video_len>/')
 @nsaivg.route('/generate/<int:video_len>/<string:message>')
 class Generate(Resource):
-  def get (self, video_len = 5, message = None):
+  def get (self, video_len = 12, message = None):
     daemon = Thread(target=asyncio.run, args=(add_new_generation(video_len, message),), daemon=True, name="add_new_generation_"+str(uuid.uuid4()))
     daemon.start()
     return make_response('Adding a new generation to the queue', 200)
@@ -76,7 +76,7 @@ async def add_new_generation(video_len, message):
     prompt = None
     if message is None:
         data = {
-            "message": "Generate a random story",
+            "message": os.environ.get("ANYTHING_LLM_DEFAULT_PROMPT") if os.environ.get("ANYTHING_LLM_DEFAULT_PROMPT") is not None else "Generates a very short random story, describing the scene and the landscapes",
             "mode": "chat"
         }
         headers = {
@@ -117,20 +117,20 @@ async def add_new_generation(video_len, message):
             param_10=9,
             param_11=25,
             param_12=3,
-            param_13=20,
+            param_13=10,
             param_14=1,
             param_15="MagCache",
             param_16=25,
             param_17=0.15,
-            param_18=0.1,
-            param_19=2,
-            param_20=0.25,
+            param_18=0.25,
+            param_19=5,
+            param_20=0.6,
             param_21=4,
             param_22="Noise",
             param_23=True,
             param_24=[],
-            param_25=384,
-            param_26=640,
+            param_25=352,
+            param_26=704,
             param_27=True,
             param_28=5,
             api_name="/handle_start_button"

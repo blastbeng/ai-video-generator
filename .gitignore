@@ -219,3 +219,5 @@ docker-compose.yml
 
 .vscode/
 aivg/.vscode
+
+MMAudio/weights
