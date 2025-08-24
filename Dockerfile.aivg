@@ -1,0 +1,19 @@
+FROM python:3.10-slim-bullseye
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+         build-essential \
+         gcc
+
+RUN pip3 install --no-cache --upgrade pip setuptools
+
+WORKDIR /app
+
+COPY aivg/requirements.txt .
+
+RUN pip3 install -r requirements.txt
+
+COPY aivg .
+RUN chmod +x entrypoint.sh
+
+CMD ["./entrypoint.sh"]

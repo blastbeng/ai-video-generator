@@ -1,13 +1,42 @@
 services:
+  aivg:
+    pull_policy: build
+    build:
+      dockerfile: Dockerfile.aivg
+    container_name: aivg
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    ports:
+      - "5661:5661"
+    depends_on:
+      aivg-fp-studio:
+        condition: service_healthy
+      aivg-ollama:
+        condition: service_healthy
+      aivg-anythingllm:
+        condition: service_healthy
+    volumes:
+      - ".env:/app/.env"
+    image: "blastbeng/aivg:1.0.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5661"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - aivg_network
   aivg-fp-studio:
     build:
       args:
         - CUDA_VERSION=12.8.1
-        - TORCH_CUDA_ARCH_LIST=Ampere
       dockerfile: Dockerfile.framepack-studio
     pull_policy: build
     container_name: aivg-fp-studio
-    image: blastbeng/aivg-fp-studio:latest
+    image: blastbeng/aivg-fp-studio:1.0.0
     restart: unless-stopped
     ports:
       - "7860:7860"
@@ -17,5 +46,78 @@ services:
       - "./framepack-studio/.framepack:/app/.framepack"
       - "./framepack-studio/modules/toolbox/model_esrgan:/app/modules/toolbox/model_esrgan"
       - "./framepack-studio/modules/toolbox/model_rife:/app/modules/toolbox/model_rife"
+      - "./framepack-studio/modules/toolbox/bin:/app/modules/toolbox/bin"
       - "$HOME/.cache/huggingface:/app/hf_download"
     runtime: "nvidia"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:7860"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - aivg_network
+  aivg-anythingllm:
+    image: mintplexlabs/anythingllm
+    container_name: aivg-anythingllm
+    pull_policy: always
+    ports:
+      - "3001:3001"
+    cap_add:
+      - SYS_ADMIN
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - STORAGE_DIR=/app/server/storage
+      - JWT_SECRET="changeme"
+      - LLM_PROVIDER=ollama
+      - OLLAMA_BASE_PATH=http://172.17.0.1:11435
+      - OLLAMA_MODEL_PREF=huihui_ai/granite3.2-abliterated:latest
+      - OLLAMA_MODEL_TOKEN_LIMIT=4096
+      - EMBEDDING_ENGINE=ollama
+      - EMBEDDING_BASE_PATH=http://172.17.0.1:11435
+      - EMBEDDING_MODEL_PREF=nomic-embed-text:latest
+      - EMBEDDING_MODEL_MAX_CHUNK_LENGTH=8192
+      - VECTOR_DB=lancedb
+      - WHISPER_PROVIDER=local
+      - TTS_PROVIDER=native
+      - PASSWORDMINCHAR=8
+    volumes:
+      - ./storage:/app/server/storage
+    restart: unless-stopped
+    depends_on:
+      aivg-ollama:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:3001"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - aivg_network
+  aivg-ollama:
+    volumes:
+      - ./ollama/ollama:/root/.ollama
+    container_name: aivg-ollama
+    pull_policy: always
+    tty: true
+    ports:
+      - "11435:11435"
+    restart: unless-stopped
+    image: docker.io/ollama/ollama:latest
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0:11435
+    healthcheck:
+      test: kill -0 1
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - aivg_network
+    runtime: "nvidia"
+networks:
+  aivg_network:
+    driver: bridge

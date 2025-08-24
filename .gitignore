@@ -210,3 +210,12 @@ framepack-studio
 framepack-studio/
 MMAudio
 MMAudio/
+storage
+storage/
+ollama
+ollama/
+
+docker-compose.yml
+
+.vscode/
+aivg/.vscode

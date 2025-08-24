@@ -1,5 +1,4 @@
 ARG CUDA_VERSION
-ARG TORCH_CUDA_ARCH_LIST
 
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04
 
@@ -19,18 +18,19 @@ RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 
 
 RUN pip3 install triton
 
+WORKDIR /app/build_space
 RUN git clone https://github.com/thu-ml/SageAttention.git
-WORKDIR /app/SageAttention
-ENV CUDA_HOME='/usr/local/cuda-12.8'
-ENV TORCH_CUDA_ARCH_LIST="${TORCH_CUDA_ARCH_LIST}"
-ENV EXT_PARALLEL=4 
-ENV NVCC_APPEND_FLAGS="--threads 8" 
+ENV TORCH_CUDA_ARCH_LIST="8.6"
+ENV EXT_PARALLEL=4
+ENV NVCC_APPEND_FLAGS="--threads 8"
 ENV MAX_JOBS=32
-RUN python3 setup.py install
+WORKDIR /app/build_space/SageAttention
+RUN sed -i "/compute_capabilities = set()/a compute_capabilities = {\"$TORCH_CUDA_ARCH_LIST\"}" setup.py
+RUN pip install . --no-build-isolation
 
 WORKDIR /app
 
-RUN rm -rf SageAttention
+RUN rm -rf build_space
 
 # Copy the source code to /app
 COPY framepack-studio .
