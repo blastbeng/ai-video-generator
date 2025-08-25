@@ -2,6 +2,7 @@ import logging
 import os
 import random
 import shutil
+import json
 import sys
 import uuid
 import asyncio
@@ -63,20 +64,29 @@ class Healthcheck(Resource):
     return "OK"
 
 @limiter.limit("1/second")
-@nsaivg.route('/generate/')
-@nsaivg.route('/generate/<int:video_len>/')
-@nsaivg.route('/generate/<int:video_len>/<string:message>')
-class Generate(Resource):
-  def get (self, video_len = 12, message = None):
-    daemon = Thread(target=asyncio.run, args=(add_new_generation(video_len, message),), daemon=True, name="add_new_generation_"+str(uuid.uuid4()))
+@nsaivg.route('/generate/enhance/')
+@nsaivg.route('/generate/enhance/<int:video_len>/')
+@nsaivg.route('/generate/enhance/<int:video_len>/<string:message>/')
+class GenerateMessage(Resource):
+  def post (self, message = None, video_len = 5):
+    daemon = Thread(target=asyncio.run, args=(add_new_generation(video_len, message=message),), daemon=True, name="add_new_generation_"+str(uuid.uuid4()))
     daemon.start()
     return make_response('Adding a new generation to the queue', 200)
 
-async def add_new_generation(video_len, message):
-    prompt = None
-    if message is None:
+@limiter.limit("1/second")
+@nsaivg.route('/generate/prompt/<int:video_len>/')
+@nsaivg.route('/generate/prompt/<int:video_len>/<string:prompt>/')
+class GeneratePrompt(Resource):
+  def post (self, prompt = None, video_len = 5):
+    daemon = Thread(target=asyncio.run, args=(add_new_generation(video_len, prompt=prompt),), daemon=True, name="add_new_generation_"+str(uuid.uuid4()))
+    daemon.start()
+    return make_response('Adding a new generation to the queue', 200)
+    
+async def add_new_generation(video_len, message=None, prompt=None):
+    if prompt is None:
+        message = random.choice(json.loads(os.environ.get('PROMPT_LIST'))) if message is None else message
         data = {
-            "message": os.environ.get("ANYTHING_LLM_DEFAULT_PROMPT") if os.environ.get("ANYTHING_LLM_DEFAULT_PROMPT") is not None else "Generates a very short random story, describing the scene and the landscapes",
+            "message": message,
             "mode": "chat"
         }
         headers = {
@@ -92,8 +102,6 @@ async def add_new_generation(video_len, message):
                 else:
                     raise Exception("Prompt from AnythingLLM is None")
             await anything_llm_session.close()
-    else:
-        prompt = message
     photo = None
     video = None
     #if is_video:
@@ -114,11 +122,11 @@ async def add_new_generation(video_len, message):
             param_7=random.randint(0,9223372036854775807),
             param_8=False,
             param_9=video_len,
-            param_10=9,
-            param_11=25,
-            param_12=3,
+            param_10=18,
+            param_11=50,
+            param_12=1,
             param_13=10,
-            param_14=1,
+            param_14=0.7,
             param_15="MagCache",
             param_16=25,
             param_17=0.15,
@@ -129,8 +137,8 @@ async def add_new_generation(video_len, message):
             param_22="Noise",
             param_23=True,
             param_24=[],
-            param_25=352,
-            param_26=704,
+            param_25=512,
+            param_26=768,
             param_27=True,
             param_28=5,
             api_name="/handle_start_button"
