@@ -9,3 +9,9 @@ MMAudio/ext_weights
 MMAudio/audio
 MMAudio/playable_video
 MMAudio/outputs
+foocus/
+foocus
+.repositories/
+.repositories
+.cache
+.cache/

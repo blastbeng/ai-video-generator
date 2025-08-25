@@ -9,3 +9,4 @@ Flask-Limiter
 Flask-APScheduler==1.12.4
 gradio_client
 aiohttp
+requests

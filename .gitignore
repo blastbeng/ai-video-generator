@@ -221,3 +221,15 @@ docker-compose.yml
 aivg/.vscode
 
 MMAudio/weights
+
+Fooocus
+Fooocus/
+
+Fooocus-API
+Fooocus-API/
+
+.repositories
+.repositories/
+
+.cache
+.cache/

@@ -13,6 +13,8 @@ services:
     depends_on:
       aivg-fp-studio:
         condition: service_healthy
+      aivg-fooocus-api:
+        condition: service_healthy
       #aivg-mmaudio:
       #  condition: service_healthy
       aivg-ollama:
@@ -21,6 +23,7 @@ services:
         condition: service_healthy
     volumes:
       - ".env:/app/.env"
+      - "/mnt/d/generated:/app/outputs"
     image: "blastbeng/aivg:1.0.0"
     restart: unless-stopped
     healthcheck:
@@ -57,6 +60,26 @@ services:
     runtime: "nvidia"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:7860"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - aivg_network
+  aivg-fooocus-api:
+    image: konieshadow/fooocus-api
+    container_name: aivg-fooocus-api
+    build:
+      dockerfile: Dockerfile.fooocus-api
+    pull_policy: build
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./Fooocus/models:/app/repositories/Fooocus/models
+      - ./.cache/pip:/root/.cache/pip
+    runtime: "nvidia"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8888"]
       interval: 60s
       timeout: 5s
       retries: 3
@@ -158,3 +181,5 @@ services:
 networks:
   aivg_network:
     driver: bridge
+volumes:
+  fooocus-data:
