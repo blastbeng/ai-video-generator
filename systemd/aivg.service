@@ -1,0 +1,18 @@
+[Unit]
+Description=aivg service with docker compose
+Requires=docker.service
+After=docker.service
+
+[Service]
+Restart=always
+User=changeme
+Group=docker
+TimeoutStartSec=2h
+WorkingDirectory=/opt/docker/compose/ai-video-generator
+ExecStartPre=/usr/bin/docker compose -f /opt/docker/compose/ai-video-generator/docker-compose.yml down
+ExecStartPre=/opt/docker/compose/ai-video-generator/build.sh
+ExecStart=/usr/bin/docker compose -f /opt/docker/compose/ai-video-generator/docker-compose.yml up --remove-orphans --abort-on-container-exit
+ExecStop=/usr/bin/docker compose -f /opt/docker/compose/ai-video-generator/docker-compose.yml down
+
+[Install]
+WantedBy=multi-user.target
