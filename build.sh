@@ -36,13 +36,14 @@ else
   git pull
 fi
 
+cd $SCRIPT_DIR
 
-if [ ! -d "$SCRIPT_DIR/MMAudio" ] ; then
-  echo "Cloning MMAudio"
-  git clone https://github.com/hkchengrex/MMAudio
+if [ ! -d "$SCRIPT_DIR/mmaudio-api" ] ; then
+  echo "Cloning mmaudio-api"
+  git clone https://github.com/VladoPortos/mmaudio-api
 else
-  echo "Updating MMAudio"
-  cd $SCRIPT_DIR/MMAudio
+  echo "Updating mmaudio-api"
+  cd $SCRIPT_DIR/mmaudio-api
   git pull
 fi
 

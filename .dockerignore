@@ -15,3 +15,7 @@ foocus
 .repositories
 .cache
 .cache/
+nginx
+nginx/
+api
+api/

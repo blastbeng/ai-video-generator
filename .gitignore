@@ -205,9 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-
-framepack-studio
-framepack-studio/
 MMAudio
 MMAudio/
 storage
@@ -233,3 +230,15 @@ Fooocus-API/
 
 .cache
 .cache/
+
+nginx
+nginx/
+
+api
+api/
+
+mmaudio-api
+mmaudio-api/
+
+framepack-studio
+framepack-studio/

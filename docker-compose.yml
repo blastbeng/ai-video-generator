@@ -31,9 +31,22 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     networks:
       - aivg_network
+  aivg-nginx:
+    image: lscr.io/linuxserver/nginx:latest
+    container_name: aivg-nginx
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    volumes:
+      - ./nginx:/config
+      - "/mnt/d/generated:/app/www/public"
+    ports:
+      - 5662:5662
+    restart: unless-stopped
   aivg-fp-studio:
     build:
       args:
@@ -63,7 +76,7 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     networks:
       - aivg_network
   aivg-fooocus-api:
@@ -83,40 +96,37 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     networks:
       - aivg_network
-  #aivg-mmaudio:
-  #  build:
-  #    args:
-  #      - CUDA_VERSION=12.8.1
-  #    dockerfile: Dockerfile.mmaudio
-  #  pull_policy: build
-  #  container_name: aivg-mmaudio
-  #  image: blastbeng/aivg-mmaudio:1.0.0
-  #  restart: unless-stopped
-  #  environment:
-  #    - PUID=1000
-  #    - PGID=1000
-  #    - GRADIO_SERVER_NAME=0.0.0.0
-  #  ports:
-  #    - "7861:7861"
-  #  volumes:
-  #    - "$HOME/.cache/huggingface:/root/.cache/huggingface"
-  #    - "./MMAudio/output/gradio:/app/output/gradio"
-  #    - "./MMAudio/playable_video:/app/playable_video"
-  #    - "./MMAudio/audio:/app/audio"
-  #    - "./MMAudio/weights:/app/weights"
-  #    - "./MMAudio/ext_weights:/app/ext_weights"
-  #  runtime: "nvidia"
-  #  healthcheck:
-  #    test: ["CMD", "curl", "-f", "http://127.0.0.1:7861"]
-  #    interval: 60s
-  #    timeout: 5s
-  #    retries: 3
-  #    start_period: 20s
-  #  networks:
-  #    - aivg_network
+  aivg-mmaudio-api:
+    build:
+      args:
+        - CUDA_VERSION=12.8.1
+      dockerfile: Dockerfile.mmaudio-api
+    image: blastbeng/aivg-mmaudio-api:1.0.0
+    container_name: aivg-mmaudio-api
+    ports:
+      - "8095:8000"
+    volumes:
+      - weights:/app/weights
+      - ext_weights:/app/ext_weights
+      - huggingface:/root/.cache/huggingface
+    environment:
+      - PYTHONUNBUFFERED=1
+      # Increase timeout for synchronous processing
+      - UVICORN_TIMEOUT=3600
+      - TORCH_USE_INFERENCE_MODE=1
+    restart: unless-stopped
+    runtime: "nvidia"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - aivg_network
   aivg-anythingllm:
     image: mintplexlabs/anythingllm
     container_name: aivg-anythingllm
@@ -153,7 +163,7 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     networks:
       - aivg_network
   aivg-ollama:
@@ -174,7 +184,7 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 20s
+      start_period: 30s
     networks:
       - aivg_network
     runtime: "nvidia"
@@ -183,3 +193,6 @@ networks:
     driver: bridge
 volumes:
   fooocus-data:
+  weights:
+  ext_weights:
+  huggingface:

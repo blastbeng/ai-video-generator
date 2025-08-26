@@ -3,27 +3,28 @@ ARG CUDA_VERSION
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04
 
 RUN apt-get update && apt-get install -y \
-    python3 python3-pip git ffmpeg wget curl && \
+    python3 python3-pip build-essential git ffmpeg wget curl && \
     pip3 install --upgrade pip
 
 WORKDIR /app
 
-# This allows caching pip install if only code has changed
-COPY framepack-studio/requirements.txt .
+COPY mmaudio-api/requirements.txt .
 
-# Install dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt
 RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 1-3) && \
     pip3 install --no-cache-dir torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
 
-
+# Clone MMAudio repository
+RUN git clone https://github.com/hkchengrex/MMAudio.git /app/MMAudio
+WORKDIR /app/MMAudio
+RUN pip3 install -e .
 WORKDIR /app
 
-# Copy the source code to /app
-COPY MMAudio .
+COPY mmaudio-api/main.py .
+COPY mmaudio-api/api .
 
-RUN sed -i 's/cache_examples=False/cache_examples=True/' gradio_demo.py
+# Expose port
+EXPOSE 8000
 
-RUN pip3 install -e .
-
-CMD ["python3", "gradio_demo.py", "--port", "7861"]
+# Command to run the application
+CMD ["python3", "main.py"]
