@@ -31,22 +31,22 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 45s
     networks:
       - aivg_network
-  aivg-nginx:
-    image: lscr.io/linuxserver/nginx:latest
-    container_name: aivg-nginx
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - TZ=Europe/Rome
-    volumes:
-      - ./nginx:/config
-      - "/mnt/d/generated:/app/www/public"
-    ports:
-      - 5662:5662
-    restart: unless-stopped
+  #aivg-nginx:
+  #  image: lscr.io/linuxserver/nginx:latest
+  #  container_name: aivg-nginx
+  #  environment:
+  #    - PUID=1000
+  #    - PGID=1000
+  #    - TZ=Europe/Rome
+  #  volumes:
+  #    - ./nginx:/config
+  #    - "/mnt/d/generated:/app/www/public"
+  #  ports:
+  #    - 5662:5662
+  #  restart: unless-stopped
   aivg-fp-studio:
     build:
       args:
@@ -76,11 +76,11 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 45s
     networks:
       - aivg_network
   aivg-fooocus-api:
-    image: konieshadow/fooocus-api
+    image: blastbeng/aivg-fooocus-api:1.0.0
     container_name: aivg-fooocus-api
     build:
       dockerfile: Dockerfile.fooocus-api
@@ -96,7 +96,7 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 45s
     networks:
       - aivg_network
   aivg-mmaudio-api:
@@ -107,7 +107,7 @@ services:
     image: blastbeng/aivg-mmaudio-api:1.0.0
     container_name: aivg-mmaudio-api
     ports:
-      - "8095:8000"
+      - "8000:8000"
     volumes:
       - weights:/app/weights
       - ext_weights:/app/ext_weights
@@ -120,11 +120,11 @@ services:
     restart: unless-stopped
     runtime: "nvidia"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:8000"]
+      test: ["CMD", "curl", "-X", "POST", "http://127.0.0.1:8000/process"]
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 45s
     networks:
       - aivg_network
   aivg-anythingllm:
@@ -163,7 +163,7 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 45s
     networks:
       - aivg_network
   aivg-ollama:
@@ -184,7 +184,7 @@ services:
       interval: 60s
       timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 45s
     networks:
       - aivg_network
     runtime: "nvidia"

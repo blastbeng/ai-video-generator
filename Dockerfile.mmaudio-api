@@ -21,7 +21,7 @@ RUN pip3 install -e .
 WORKDIR /app
 
 COPY mmaudio-api/main.py .
-COPY mmaudio-api/api .
+COPY mmaudio-api/api api
 
 # Expose port
 EXPOSE 8000

@@ -11,8 +11,10 @@ import urllib
 import time
 import re
 
+from io import BytesIO
 from dotenv import load_dotenv
 from flask import Flask
+from flask import send_file
 from flask import Response
 from flask import make_response
 from flask import request
@@ -39,6 +41,15 @@ logging.basicConfig(
 log = logging.getLogger('werkzeug')
 log.setLevel(int(os.environ.get("LOG_LEVEL")))
 
+def remove_directory_tree(start_directory: Path):
+    """Recursively and permanently removes the specified directory, all of its
+    subdirectories, and every file contained in any of those folders."""
+    for path in start_directory.iterdir():
+        if path.is_file():
+            path.unlink()
+        else:
+            remove_directory_tree(path)
+
 def text2img(params: dict) -> dict:
     host = os.environ.get("FOOOCUS_ENDPOINT")
     result = requests.post(url=f"{host}/v1/generation/text-to-image",
@@ -64,6 +75,20 @@ def download_png(url, file_path=os.environ.get("OUTPUT_PATH")):
     urllib.request.urlretrieve(url, full_path)
     time.sleep(5)
     return full_path
+
+def add_audio_to_video(file, prompt, video_len):
+    url = os.environ.get("MMAUDIO_ENDPOINT") + "/process"
+    payload = {
+        'prompt': prompt, 
+        'negative_prompt': "music", 
+        'variant': "medium_44k", 
+        'duration': str(video_len)
+    }
+    with  open(file,'rb') as file:
+        response = requests.post(url, data=payload, files={'video': file})
+        if response.status_code == 200:
+            return response.content
+    return None
 
 def add_new_generation(video_len, mode, message=None, prompt=None):
     client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
@@ -138,8 +163,8 @@ def add_new_generation(video_len, mode, message=None, prompt=None):
                 param_22="Noise",
                 param_23=True,
                 param_24=[],
-                param_25=512,
-                param_26=768,
+                param_25=512, #param_25=512,
+                param_26=768, #param_26=768,
                 param_27=True,
                 param_28=5,
                 api_name="/handle_start_button"
@@ -151,8 +176,23 @@ def add_new_generation(video_len, mode, message=None, prompt=None):
                     api_name="/monitor_job"
             )
             if len(monitor_result) > 0 and 'video' in monitor_result[0]:
-                mp4_name = os.path.basename(monitor_result[0]['video'])
-                return mp4_name
+                file = os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video'])
+                result_upscale = client.predict(
+                        video_path={"video":handle_file(file)},
+                        model_key_selected="RealESRGAN_x2plus",
+                        output_scale_factor_from_slider=2,
+                        tile_size=0,
+                        enhance_face_ui=True,
+                        denoise_strength_from_slider=0.5,
+                        use_streaming=False,
+                        api_name="/tb_handle_upscale_video"
+                )
+                if len(result_upscale) > 0 and 'video' in result_upscale[0]:
+                    file_upscaled = os.environ.get("OUTPUT_PATH") + os.path.basename(result_upscale[0]['video'])
+                    mp4 = add_audio_to_video(file, prompt, video_len)
+                    return mp4
+                else:
+                    return None
             else:
                 return None
         return prompt
@@ -165,6 +205,7 @@ def create_app():
     with app.app_context():
 #        daemon = Thread(target=add_new_generation, args=(random.randint(5,60), 0,), daemon=True)
 #        daemon.start()
+        remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
         return app
 
 app = create_app()
@@ -197,12 +238,12 @@ class Healthcheck(Resource):
 @nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/<string:message>/')
 class GenerateMessage(Resource):
   def post (self, mode = 0, message = None, video_len = 11):
-    mp4_path = add_new_generation(video_len, mode, message=message)
-    if mp4_path is None:
+    mp4 = add_new_generation(video_len, mode, message=message)
+    if mp4 is None:
         return make_response('Error generating video', 500)
-    elif mp4_path is False:
+    elif mp4 is False:
         return make_response('Another generation in progress', 206)
-    return make_response(mp4_path, 200)
+    return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
 
 @limiter.limit("1/second")
 @nsaivg.route('/generate/prompt/<string:prompt>/')
@@ -210,12 +251,12 @@ class GenerateMessage(Resource):
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:video_len>/')
 class GeneratePrompt(Resource):
   def post (self, prompt = None, mode = 0, video_len = 11):
-    mp4_path = add_new_generation(video_len, mode, prompt=prompt)
-    if mp4_path is None:
+    mp4 = add_new_generation(video_len, mode, prompt=prompt)
+    if mp4 is None:
         return make_response('Error generating video', 500)
-    elif mp4_path is False:
+    elif mp4 is False:
         return make_response('Another generation in progress', 206)
-    return make_response(mp4_path, 200)
+    return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
 
 @scheduler.task('interval', id='generate_loop', hours = 6)
 def generate_loop():
