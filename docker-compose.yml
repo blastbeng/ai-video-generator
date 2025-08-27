@@ -62,14 +62,17 @@ services:
     ports:
       - "7860:7860"
     volumes:
-      - "./framepack-studio/loras:/app/loras"
+    #  - "./framepack-studio/loras:/app/loras"
+      - "$HOME/.cache/huggingface/hub/models--Kijai--HunyuanVideo_comfy/snapshots/b0bb3f4f83cbdce6d2c11c6db7d527749ae75c05:/app/loras"
     #  - "./framepack-studio/outputs:/app/outputs"
       - "/mnt/d/generated:/app/outputs"
       - "./framepack-studio/.framepack:/app/.framepack"
+      - "./framepack-studio/modules/toolbox/model_gfpgan:/app/modules/toolbox/model_gfpgan"
       - "./framepack-studio/modules/toolbox/model_esrgan:/app/modules/toolbox/model_esrgan"
       - "./framepack-studio/modules/toolbox/model_rife:/app/modules/toolbox/model_rife"
       - "./framepack-studio/modules/toolbox/bin:/app/modules/toolbox/bin"
       - "$HOME/.cache/huggingface:/app/hf_download"
+      - gfpgan_weights:/app/gfpgan/weights
     runtime: "nvidia"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:7860"]
@@ -196,3 +199,4 @@ volumes:
   weights:
   ext_weights:
   huggingface:
+  gfpgan_weights:

@@ -90,15 +90,16 @@ def add_audio_to_video(file, prompt, video_len):
             return response.content
     return None
 
-def add_new_generation(video_len, mode, message=None, prompt=None):
+def add_new_generation(video_len, mode=1, message=None, prompt=None):
     client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
     result = client.predict(
 		api_name="/check_for_current_job"
     )
-    if len(result) > 0 and (result[0] is None or result[0] == ""):
-        
+    if result is not None and len(result) > 0 and (result[0] is None or result[0] == ""):
+        prompt_image = None
         if prompt is None:
             message = random.choice(json.loads(os.environ.get('PROMPT_LIST'))) if message is None else message
+            prompt_image = message
             data = {
                 "message": message,
                 "mode": "chat"
@@ -116,8 +117,10 @@ def add_new_generation(video_len, mode, message=None, prompt=None):
                 prompt = anything_llm_json["textResponse"].rstrip()
             else:
                 raise Exception("Prompt from AnythingLLM is None")
+        else:
+            prompt_image = prompt
 
-        start_image = generate_image(prompt)
+        start_image = generate_image(prompt_image)
         photo_init = handle_file(download_png(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1")))
 
         photo_end = None
@@ -148,7 +151,7 @@ def add_new_generation(video_len, mode, message=None, prompt=None):
                 param_7=efi,
                 param_8=False,
                 param_9=video_len,
-                param_10=9, # window size
+                param_10=15, # window size
                 param_11=50, # steps
                 param_12=1,
                 param_13=10,
@@ -162,20 +165,26 @@ def add_new_generation(video_len, mode, message=None, prompt=None):
                 param_21=4,
                 param_22="Noise",
                 param_23=True,
-                param_24=[],
+                param_24=['hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn', 'hyvid_I2V_lora_hair_growth', 'hyvideo_FastVideo_LoRA-fp8', 'hunyuan_video_720_cfgdistill_fp8_e4m3fn', 'hyvid_I2V_lora_embrace', 'hunyuan_video_FastVideo_720_fp8_e4m3fn'],
                 param_25=512, #param_25=512,
                 param_26=768, #param_26=768,
                 param_27=True,
                 param_28=5,
+                param_30=1,
+                param_31=1,
+                param_32=1,
+                param_33=1,
+                param_34=1,
+                param_35=1,
                 api_name="/handle_start_button"
         )
-        if len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
+        if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
             job_id = gen_result[1]
             monitor_result = client.predict(
                     job_id=job_id,
                     api_name="/monitor_job"
             )
-            if len(monitor_result) > 0 and 'video' in monitor_result[0]:
+            if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
                 file = os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video'])
                 result_upscale = client.predict(
                         video_path={"video":handle_file(file)},
@@ -184,12 +193,12 @@ def add_new_generation(video_len, mode, message=None, prompt=None):
                         tile_size=0,
                         enhance_face_ui=True,
                         denoise_strength_from_slider=0.5,
-                        use_streaming=False,
+                        use_streaming=True,
                         api_name="/tb_handle_upscale_video"
                 )
                 if len(result_upscale) > 0 and 'video' in result_upscale[0]:
-                    file_upscaled = os.environ.get("OUTPUT_PATH") + os.path.basename(result_upscale[0]['video'])
-                    mp4 = add_audio_to_video(file, prompt, video_len)
+                    file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
+                    mp4 = add_audio_to_video(file_upscaled, prompt, video_len)
                     return mp4
                 else:
                     return None
@@ -203,9 +212,9 @@ def add_new_generation(video_len, mode, message=None, prompt=None):
 def create_app():
     app = Flask(__name__)
     with app.app_context():
-#        daemon = Thread(target=add_new_generation, args=(random.randint(5,60), 0,), daemon=True)
-#        daemon.start()
-        remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
+        #daemon = Thread(target=add_new_generation, args=(random.randint(5,60),), daemon=True)
+        #daemon.start()
+        #remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
         return app
 
 app = create_app()
@@ -237,8 +246,8 @@ class Healthcheck(Resource):
 @nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/')
 @nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/<string:message>/')
 class GenerateMessage(Resource):
-  def post (self, mode = 0, message = None, video_len = 11):
-    mp4 = add_new_generation(video_len, mode, message=message)
+  def post (self, mode = 1, message = None, video_len = 11):
+    mp4 = add_new_generation(video_len, mode=mode, message=message)
     if mp4 is None:
         return make_response('Error generating video', 500)
     elif mp4 is False:
@@ -250,17 +259,17 @@ class GenerateMessage(Resource):
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/')
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:video_len>/')
 class GeneratePrompt(Resource):
-  def post (self, prompt = None, mode = 0, video_len = 11):
-    mp4 = add_new_generation(video_len, mode, prompt=prompt)
+  def post (self, prompt = None, mode = 1, video_len = 11):
+    mp4 = add_new_generation(video_len, mode=mode, prompt=prompt)
     if mp4 is None:
         return make_response('Error generating video', 500)
     elif mp4 is False:
         return make_response('Another generation in progress', 206)
     return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
 
-@scheduler.task('interval', id='generate_loop', hours = 6)
-def generate_loop():
-    add_new_generation(random.randint(15,60), 0, message=None, prompt=None)
+#@scheduler.task('interval', id='generate_loop', hours = 6)
+#def generate_loop():
+#    add_new_generation(random.randint(15,60))
 
 limiter.init_app(app)
 scheduler.init_app(app)
