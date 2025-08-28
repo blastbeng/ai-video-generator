@@ -21,3 +21,7 @@ api
 api/
 HunyuanVideo_comfy
 HunyuanVideo_comfy/
+modules
+modules/
+.framepack
+.framepack/

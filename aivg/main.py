@@ -57,6 +57,12 @@ def text2img(params: dict) -> dict:
                            headers={"Content-Type": "application/json"})
     return result.json()
 
+def get_styles():
+    host = os.environ.get("FOOOCUS_ENDPOINT")
+    result = requests.get(url=f"{host}/v1/engines/styles",
+                          headers={"Content-Type": "application/json"})
+    return result.json()
+
 def generate_image(prompt):
     result = text2img({
         "prompt": prompt,
@@ -64,7 +70,10 @@ def generate_image(prompt):
         "performance_selection": "Quality",
         "aspect_ratios_selection": "704*1344",
         "image_number": 1,
-        "async_process": False})
+        "image_seed": random.randint(0, 9223372036854775807),
+        "async_process": False,
+        "style_selections": [ "Fooocus V2", "Fooocus V2 (Optional)", "Fooocus Enhance", "Fooocus Sharp", "Fooocus Negative", "Fooocus Cinematic", "Cinematic Diva", "Fooocus Photograph" ]
+        })
     if len(result) > 0 and 'url' in result[0]:
         return result[0]['url']
     else:
@@ -80,8 +89,8 @@ def add_audio_to_video(file, prompt, video_len):
     url = os.environ.get("MMAUDIO_ENDPOINT") + "/process"
     payload = {
         'prompt': prompt, 
-        'negative_prompt': "music", 
-        'variant': "medium_44k", 
+        'negative_prompt': "", 
+        'variant': "large_44k_v2", 
         'duration': str(video_len)
     }
     with  open(file,'rb') as file:
@@ -113,18 +122,30 @@ def add_new_generation(video_len, mode=1, message=None, prompt=None):
                             headers=headers)
             
             if (anything_llm_response.status_code == 200):
-                anything_llm_json = anything_llm_response.json()
-                prompt = anything_llm_json["textResponse"].rstrip()
+                
+                prompt = anything_llm_json = anything_llm_response.json()["textResponse"].rstrip()
+                data_prompt_img = {
+                    "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + prompt + '"',
+                    "mode": "chat"
+                }
+                anything_llm_response_prompt_img = requests.post(url=anything_llm_url,
+                                data=data_prompt_img,
+                                headers=headers)
+                if (anything_llm_response_prompt_img.status_code == 200):
+                    prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
+                else:
+                    raise Exception("Error getting response from AnythingLLM")
             else:
-                raise Exception("Prompt from AnythingLLM is None")
+                raise Exception("Error getting response from AnythingLLM")
         else:
             prompt_image = prompt
-
+        
         start_image = generate_image(prompt_image)
         photo_init = handle_file(download_png(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1")))
 
         photo_end = None
         efi = 1
+        seed = random.randint(0, 9223372036854775807)
         ##if mode == 0:
         ##    end_image = generate_image(message)
         ##    photo_end = handle_file(download_png(end_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1")))
@@ -140,32 +161,33 @@ def add_new_generation(video_len, mode=1, message=None, prompt=None):
         #    content = await update.message.effective_attachment[-1].get_file()
         #    photo = handle_file(content.file_path)
         ##original = "Original" if photo_end is None else "Original with Endframe"
+        loras = ['hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn', 'hyvid_I2V_lora_hair_growth', 'hyvideo_FastVideo_LoRA-fp8', 'hunyuan_video_720_cfgdistill_fp8_e4m3fn', 'hyvid_I2V_lora_embrace', 'hunyuan_video_FastVideo_720_fp8_e4m3fn']
         gen_result = client.predict(
                 selected_model="F1" if mode == 1 else "Original",
                 param_1=photo_init,
                 param_2=video,
                 param_3=photo_end,
-                param_4=round(random.uniform(0, 1.1), 1),
+                param_4=efi,
                 param_5=prompt,
                 param_6=os.environ.get("NEGATIVE_PROMPT"),
-                param_7=efi,
+                param_7=seed,
                 param_8=False,
                 param_9=video_len,
-                param_10=15, # window size
-                param_11=50, # steps
+                param_10=9, # window size
+                param_11=40, # steps
                 param_12=1,
                 param_13=10,
-                param_14=0.7,
+                param_14=0, #param_14=0.7,
                 param_15="MagCache",
                 param_16=25,
                 param_17=0.15,
                 param_18=0.25,
                 param_19=5,
-                param_20=0, #param_20=0.6,
+                param_20=0.2, #param_20=0.6,
                 param_21=4,
                 param_22="Noise",
                 param_23=True,
-                param_24=['hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn', 'hyvid_I2V_lora_hair_growth', 'hyvideo_FastVideo_LoRA-fp8', 'hunyuan_video_720_cfgdistill_fp8_e4m3fn', 'hyvid_I2V_lora_embrace', 'hunyuan_video_FastVideo_720_fp8_e4m3fn'],
+                param_24=loras, #param_24=random.sample(loras, random.randint(1, len(loras))),
                 param_25=512, #param_25=512,
                 param_26=768, #param_26=768,
                 param_27=True,
@@ -193,7 +215,7 @@ def add_new_generation(video_len, mode=1, message=None, prompt=None):
                         tile_size=0,
                         enhance_face_ui=True,
                         denoise_strength_from_slider=0.5,
-                        use_streaming=True,
+                        use_streaming=False,
                         api_name="/tb_handle_upscale_video"
                 )
                 if len(result_upscale) > 0 and 'video' in result_upscale[0]:
@@ -214,7 +236,7 @@ def create_app():
     with app.app_context():
         #daemon = Thread(target=add_new_generation, args=(random.randint(5,60),), daemon=True)
         #daemon.start()
-        #remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
+        remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
         return app
 
 app = create_app()
@@ -247,12 +269,18 @@ class Healthcheck(Resource):
 @nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/<string:message>/')
 class GenerateMessage(Resource):
   def post (self, mode = 1, message = None, video_len = 11):
-    mp4 = add_new_generation(video_len, mode=mode, message=message)
-    if mp4 is None:
-        return make_response('Error generating video', 500)
-    elif mp4 is False:
-        return make_response('Another generation in progress', 206)
-    return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+    try:
+        mp4 = add_new_generation(video_len, mode=mode, message=message)
+        if mp4 is None:
+            return make_response('Error generating video', 500)
+        elif mp4 is False:
+            return make_response('Another generation in progress', 206)
+        return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+    except Exception as e:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      return make_response('Error generating video', 500)
 
 @limiter.limit("1/second")
 @nsaivg.route('/generate/prompt/<string:prompt>/')
@@ -260,12 +288,35 @@ class GenerateMessage(Resource):
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:video_len>/')
 class GeneratePrompt(Resource):
   def post (self, prompt = None, mode = 1, video_len = 11):
-    mp4 = add_new_generation(video_len, mode=mode, prompt=prompt)
-    if mp4 is None:
-        return make_response('Error generating video', 500)
-    elif mp4 is False:
-        return make_response('Another generation in progress', 206)
-    return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+    try:
+        mp4 = add_new_generation(video_len, mode=mode, prompt=prompt)
+        if mp4 is None:
+            return make_response('Error generating video', 500)
+        elif mp4 is False:
+            return make_response('Another generation in progress', 206)
+        return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+    except Exception as e:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      return make_response('Error generating video', 500)
+
+@limiter.limit("1/second")
+@nsaivg.route('/generate/stop/')
+class GeneratePrompt(Resource):
+  def get (self):
+    try:
+        client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
+        result = client.predict(
+                api_name="/end_process_with_update"
+        )
+        logging.info("%s", str(result))
+        return make_response('Stopping current generation...', 206)
+    except Exception as e:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      return make_response('Error', 500)
 
 #@scheduler.task('interval', id='generate_loop', hours = 6)
 #def generate_loop():
