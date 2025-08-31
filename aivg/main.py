@@ -10,7 +10,10 @@ import requests
 import urllib
 import time
 import re
+import subprocess
+import queue
 
+from concurrent import futures
 from io import BytesIO
 from dotenv import load_dotenv
 from flask import Flask
@@ -41,6 +44,13 @@ logging.basicConfig(
 log = logging.getLogger('werkzeug')
 log.setLevel(int(os.environ.get("LOG_LEVEL")))
 
+class ThreadPoolExecutorWithQueueSizeLimit(futures.ThreadPoolExecutor):
+    def __init__(self, maxsize=10, *args, **kwargs):
+        super(ThreadPoolExecutorWithQueueSizeLimit, self).__init__(*args, **kwargs)
+        self._work_queue = queue.Queue(maxsize=maxsize)
+
+executor = ThreadPoolExecutorWithQueueSizeLimit(max_workers=1) 
+
 def remove_directory_tree(start_directory: Path):
     """Recursively and permanently removes the specified directory, all of its
     subdirectories, and every file contained in any of those folders."""
@@ -69,6 +79,7 @@ def generate_image(prompt):
         "negative_prompt": os.environ.get("NEGATIVE_PROMPT"),
         "performance_selection": "Quality",
         "aspect_ratios_selection": "704*1344",
+        "guidance_scale": 20.0,
         "image_number": 1,
         "image_seed": random.randint(0, 9223372036854775807),
         "async_process": False,
@@ -79,13 +90,19 @@ def generate_image(prompt):
     else:
         raise Exception("Result from Fooocus-API is None")
 
-def download_png(url, file_path=os.environ.get("OUTPUT_PATH")):
-    full_path = file_path + str(uuid.uuid4()) + ".png"
+def download_file(url, extension, file_path=os.environ.get("OUTPUT_PATH")):
+    full_path = file_path + str(uuid.uuid4()) + "." + extension
     urllib.request.urlretrieve(url, full_path)
     time.sleep(5)
     return full_path
 
-def add_audio_to_video(file, prompt, video_len):
+def save_file(image, extension, file_path=os.environ.get("OUTPUT_PATH")):
+    full_path = file_path + str(uuid.uuid4()) + "." + extension
+    with open(full_path, "wb") as full_path_f:
+        full_path_f.write(image)
+    return full_path
+
+def add_audio_to_video(file_path, prompt, video_len):
     url = os.environ.get("MMAUDIO_ENDPOINT") + "/process"
     payload = {
         'prompt': prompt, 
@@ -93,13 +110,17 @@ def add_audio_to_video(file, prompt, video_len):
         'variant': "large_44k_v2", 
         'duration': str(video_len)
     }
-    with  open(file,'rb') as file:
+    with  open(file_path,'rb') as file:
         response = requests.post(url, data=payload, files={'video': file})
+        response.raise_for_status()
         if response.status_code == 200:
-            return response.content
+            mmaudio_file_path = os.environ.get("OUTPUT_PATH") + os.path.basename(file_path).replace(".mp4","_MMAudio.mp4")
+            with open(mmaudio_file_path, "wb") as mmaudio_f:
+                mmaudio_f.write(response.content)
+            return mmaudio_file_path
     return None
 
-def add_new_generation(video_len, mode=1, message=None, prompt=None):
+def add_new_generation(video_len, mode, gen_photo, message, prompt, image, video):
     client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
     result = client.predict(
 		api_name="/check_for_current_job"
@@ -123,67 +144,109 @@ def add_new_generation(video_len, mode=1, message=None, prompt=None):
             
             if (anything_llm_response.status_code == 200):
                 
-                prompt = anything_llm_json = anything_llm_response.json()["textResponse"].rstrip()
-                data_prompt_img = {
-                    "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + prompt + '"',
-                    "mode": "chat"
-                }
-                anything_llm_response_prompt_img = requests.post(url=anything_llm_url,
-                                data=data_prompt_img,
-                                headers=headers)
-                if (anything_llm_response_prompt_img.status_code == 200):
-                    prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
+                prompt = anything_llm_response.json()["textResponse"].rstrip()
+                if gen_photo:
+                    data_prompt_img = {
+                        "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + prompt + '"',
+                        "mode": "chat"
+                    }
+                    anything_llm_response_prompt_img = requests.post(url=anything_llm_url,
+                                    data=data_prompt_img,
+                                    headers=headers)
+                    if (anything_llm_response_prompt_img.status_code == 200):
+                        prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
+                    else:
+                        raise Exception("Error getting response from AnythingLLM")
                 else:
-                    raise Exception("Error getting response from AnythingLLM")
+                    prompt_image = prompt
             else:
                 raise Exception("Error getting response from AnythingLLM")
         else:
             prompt_image = prompt
-        
-        start_image = generate_image(prompt_image)
-        photo_init = handle_file(download_png(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1")))
+
+        photo_init = None
+        video_init = None
+        if image is not None:
+            photo_init = save_file(image, ".png")
+        elif video is not None:
+            video_init = save_file(video, ".mp4")
+        elif gen_photo:
+            start_image = generate_image(prompt_image)
+            photo_init = download_file(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1"), "png")
 
         photo_end = None
         efi = 1
+        #loras = [
+        #            'hunyuan_video_vae_bf16', 
+        #            'hunyuan_video_I2V_720_fixed_fp8_e4m3fn', 
+        #            'hyvid_I2V_lora_hair_growth',
+        #            'hyvideo_FastVideo_LoRA-fp8',
+        #            'hunyuan_video_720_cfgdistill_fp8_e4m3fn',
+        #            'hyvid_I2V_lora_embrace', 
+        #            'hunyuan_video_FastVideo_720_fp8_e4m3fn', 
+        #            'FramePackI2V_HY_fp8_e4m3fn'
+        #        ]
+        loras = [
+                    'hyvideo_FastVideo_LoRA-fp8',
+                    'hunyuan_video_720_cfgdistill_fp8_e4m3fn',
+                ]
         seed = random.randint(0, 9223372036854775807)
-        ##if mode == 0:
-        ##    end_image = generate_image(message)
-        ##    photo_end = handle_file(download_png(end_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1")))
-        ##    efi = random.randint(0,9223372036854775807)
 
-        #photo_init = handle_file(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1"))
-        #photo_end = handle_file(end_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1"))
-        video = None
-        #if is_video:
-        #    content = await update.message.effective_attachment.get_file()
-        #    video = {"video":handle_file(content.file_path)}
-        #elif not from_cmd:
-        #    content = await update.message.effective_attachment[-1].get_file()
-        #    photo = handle_file(content.file_path)
-        ##original = "Original" if photo_end is None else "Original with Endframe"
-        loras = ['hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn', 'hyvid_I2V_lora_hair_growth', 'hyvideo_FastVideo_LoRA-fp8', 'hunyuan_video_720_cfgdistill_fp8_e4m3fn', 'hyvid_I2V_lora_embrace', 'hunyuan_video_FastVideo_720_fp8_e4m3fn']
-        gen_result = client.predict(
-                selected_model="F1" if mode == 1 else "Original",
-                param_1=photo_init,
-                param_2=video,
-                param_3=photo_end,
+        generated_video = get_video(client, mode, photo_init, video_init, efi, prompt, loras, 0, video_len)
+        if generated_video is not None:
+            result_upscale = client.predict(
+                    video_path={"video":handle_file(generated_video)},
+                    model_key_selected="RealESRGAN_x2plus",
+                    output_scale_factor_from_slider=2,
+                    tile_size=0,
+                    enhance_face_ui=True,
+                    denoise_strength_from_slider=0.5,
+                    use_streaming=False,
+                    api_name="/tb_handle_upscale_video"
+            )
+            if len(result_upscale) > 0 and 'video' in result_upscale[0]:
+                file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
+                mp4 = add_audio_to_video(file_upscaled, prompt_image, video_len)
+                return mp4
+        return None
+    else:
+        return False
+    return None
+
+def get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, actual_seconds, requested_seconds):
+    OFFSET_SECONDS = 6
+    missing_seconds = requested_seconds - actual_seconds
+    actual_seconds = actual_seconds + OFFSET_SECONDS
+
+    seconds_to_gen = OFFSET_SECONDS
+    if missing_seconds > 0 and missing_seconds < OFFSET_SECONDS:
+        seconds_to_gen = missing_seconds
+
+    model = "F1" if mode else "Original"
+    if video_init is not None:
+        model = "Video F1" if mode else "Video"
+    gen_result = client.predict(
+                selected_model=model,
+                param_1=handle_file(photo_init) if photo_init is not None else None,
+                param_2=({"video":handle_file(video_init)}) if video_init is not None else None,
+                param_3=None,
                 param_4=efi,
                 param_5=prompt,
                 param_6=os.environ.get("NEGATIVE_PROMPT"),
                 param_7=seed,
                 param_8=False,
-                param_9=video_len,
+                param_9=seconds_to_gen,
                 param_10=9, # window size
-                param_11=40, # steps
+                param_11=10, # steps
                 param_12=1,
                 param_13=10,
-                param_14=0, #param_14=0.7,
-                param_15="MagCache",
+                param_14=0.7, #param_14=0.7,
+                param_15="None",
                 param_16=25,
                 param_17=0.15,
-                param_18=0.25,
+                param_18=0.35,
                 param_19=5,
-                param_20=0.2, #param_20=0.6,
+                param_20=0, #param_20=0.6,
                 param_21=4,
                 param_22="Noise",
                 param_23=True,
@@ -192,51 +255,73 @@ def add_new_generation(video_len, mode=1, message=None, prompt=None):
                 param_26=768, #param_26=768,
                 param_27=True,
                 param_28=5,
-                param_30=1,
-                param_31=1,
-                param_32=1,
-                param_33=1,
-                param_34=1,
-                param_35=1,
+                param_30=1, #hunyuan_video_vae_bf16 
+                param_31=1, #hunyuan_video_I2V_720_fixed_fp8_e4m3fn 
+                param_32=1, #hyvid_I2V_lora_hair_growth 
+                param_33=2, #hyvideo_FastVideo_LoRA-fp8
+                param_34=1, #hunyuan_video_720_cfgdistill_fp8_e4m3fn 
+                param_35=1, #hyvid_I2V_lora_embrace 
+                param_36=1, #hunyuan_video_FastVideo_720_fp8_e4m3fn 
+                param_37=1, #FramePackI2V_HY_fp8_e4m3fn 
                 api_name="/handle_start_button"
         )
-        if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
-            job_id = gen_result[1]
-            monitor_result = client.predict(
-                    job_id=job_id,
-                    api_name="/monitor_job"
-            )
-            if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
-                file = os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video'])
-                result_upscale = client.predict(
-                        video_path={"video":handle_file(file)},
-                        model_key_selected="RealESRGAN_x2plus",
-                        output_scale_factor_from_slider=2,
-                        tile_size=0,
-                        enhance_face_ui=True,
-                        denoise_strength_from_slider=0.5,
-                        use_streaming=False,
-                        api_name="/tb_handle_upscale_video"
-                )
-                if len(result_upscale) > 0 and 'video' in result_upscale[0]:
-                    file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
-                    mp4 = add_audio_to_video(file_upscaled, prompt, video_len)
-                    return mp4
-                else:
-                    return None
+    if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
+        job_id = gen_result[1]
+        monitor_result = client.predict(
+                job_id=job_id,
+                api_name="/monitor_job"
+        )
+        if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
+            intermediate_video = os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video'])
+            if actual_seconds >= requested_seconds:
+                return intermediate_video
             else:
-                return None
-        return prompt
-    else:
-        return False
+                return get_video(client, mode, None, intermediate_video, efi, prompt, seed, loras, actual_seconds, requested_seconds)
     return None
+
+def generate_image_pre(prompt):
+    prompt_image = None
+    if prompt is not None and prompt.strip() != "":
+        prompt_image = prompt
+    else:
+        message = random.choice(json.loads(os.environ.get('PROMPT_LIST')))
+        data = {
+            "message": message,
+            "mode": "chat"
+        }
+        headers = {
+            'Authorization': 'Bearer ' + os.environ.get("ANYTHING_LLM_API_KEY")
+        }
+        anything_llm_url = os.environ.get("ANYTHING_LLM_ENDPOINT") + "/api/v1/workspace/" + os.environ.get("ANYTHING_LLM_WORKSPACE") + "/chat"
+        anything_llm_response = requests.post(url=anything_llm_url,
+                        data=data,
+                        headers=headers)
+            
+        if (anything_llm_response.status_code == 200):
+
+            story_gen = anything_llm_response.json()["textResponse"].rstrip()
+            data_prompt_img = {
+                "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + story_gen + '"',
+                "mode": "chat"
+            }
+            anything_llm_response_prompt_img = requests.post(url=anything_llm_url,
+                            data=data_prompt_img,
+                            headers=headers)
+            if (anything_llm_response_prompt_img.status_code == 200):
+                prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
+            else:
+                raise Exception("Error getting response from AnythingLLM")
+        else:
+            raise Exception("Error getting response from AnythingLLM")
+        
+    gen_image = generate_image(prompt_image)
+    image = download_file(gen_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1"), "png")
+    return image
 
 def create_app():
     app = Flask(__name__)
     with app.app_context():
-        #daemon = Thread(target=add_new_generation, args=(random.randint(5,60),), daemon=True)
-        #daemon.start()
-        remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
+        #remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
         return app
 
 app = create_app()
@@ -265,17 +350,19 @@ class Healthcheck(Resource):
 @limiter.limit("1/second")
 @nsaivg.route('/generate/enhance/')
 @nsaivg.route('/generate/enhance/<int:mode>/')
-@nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/')
-@nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/<string:message>/')
+@nsaivg.route('/generate/enhance/<int:mode>/<int:gen_photo>/')
+@nsaivg.route('/generate/enhance/<int:mode>/<int:gen_photo>/<int:video_len>/')
+@nsaivg.route('/generate/enhance/<int:mode>/<int:gen_photo>/<int:video_len>/<string:message>/')
 class GenerateMessage(Resource):
-  def post (self, mode = 1, message = None, video_len = 11):
+  def post (self, mode = 1, gen_photo = 1, video_len = 5, message = None):
     try:
-        mp4 = add_new_generation(video_len, mode=mode, message=message)
+        future = executor.submit(add_new_generation, video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), message, None, request.files["image"].read() if "image" in request.files else None, request.files["video"].read() if "video" in request.files else None)
+        mp4 = future.result()
         if mp4 is None:
             return make_response('Error generating video', 500)
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
-        return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+        return send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -285,21 +372,42 @@ class GenerateMessage(Resource):
 @limiter.limit("1/second")
 @nsaivg.route('/generate/prompt/<string:prompt>/')
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/')
-@nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:video_len>/')
+@nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:gen_photo>/')
+@nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:gen_photo>/<int:video_len>/')
 class GeneratePrompt(Resource):
-  def post (self, prompt = None, mode = 1, video_len = 11):
+  def post (self, prompt = None, mode = 1, gen_photo = 1, video_len = 5):
     try:
-        mp4 = add_new_generation(video_len, mode=mode, prompt=prompt)
+        future = executor.submit(add_new_generation, video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), None, prompt, request.files["image"].read() if "image" in request.files else None, request.files["video"].read() if "video" in request.files else None)
+        mp4 = future.result()
         if mp4 is None:
             return make_response('Error generating video', 500)
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
-        return send_file(BytesIO(mp4), attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+        return send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
       logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
       return make_response('Error generating video', 500)
+
+@limiter.limit("1/second")
+@nsaivg.route('/generate/image/')
+@nsaivg.route('/generate/image/<string:prompt>/')
+class GenerateImage(Resource):
+  def post (self, prompt = None):
+    try:
+        future = executor.submit(generate_image_pre, prompt)
+        image = future.result()
+        if image is None:
+            return make_response('Error generating image', 500)
+        else:
+            return send_file(image, attachment_filename=str(uuid.uuid4()) + '.png', mimetype='image/png')
+        
+    except Exception as e:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      return make_response('Error generating image', 500)
 
 @limiter.limit("1/second")
 @nsaivg.route('/generate/stop/')
@@ -311,7 +419,7 @@ class GeneratePrompt(Resource):
                 api_name="/end_process_with_update"
         )
         logging.info("%s", str(result))
-        return make_response('Stopping current generation...', 206)
+        return make_response('Stopping current generation...', 200)
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]

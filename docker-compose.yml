@@ -23,6 +23,7 @@ services:
         condition: service_healthy
     volumes:
       - ".env:/app/.env"
+    #  - "./framepack-studio/outputs:/app/outputs"
       - "/mnt/d/generated:/app/outputs"
     image: "blastbeng/aivg:1.0.0"
     restart: unless-stopped
@@ -112,6 +113,8 @@ services:
     ports:
       - "8000:8000"
     volumes:
+    #  - "./framepack-studio/outputs:/app/outputs"
+      - "/mnt/d/generated:/app/outputs"
       - weights:/app/weights
       - ext_weights:/app/ext_weights
       - huggingface:/root/.cache/huggingface
