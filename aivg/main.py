@@ -192,7 +192,7 @@ def add_new_generation(video_len, mode, gen_photo, message, prompt, image, video
                 ]
         seed = random.randint(0, 9223372036854775807)
 
-        generated_video = get_video(client, mode, photo_init, video_init, efi, prompt, loras, 0, video_len)
+        generated_video = get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, 0, video_len)
         if generated_video is not None:
             result_upscale = client.predict(
                     video_path={"video":handle_file(generated_video)},
@@ -240,7 +240,7 @@ def get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, ac
                 param_11=10, # steps
                 param_12=1,
                 param_13=10,
-                param_14=0.7, #param_14=0.7,
+                param_14=0, #param_14=0.7,
                 param_15="None",
                 param_16=25,
                 param_17=0.15,
@@ -255,14 +255,14 @@ def get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, ac
                 param_26=768, #param_26=768,
                 param_27=True,
                 param_28=5,
-                param_30=1, #hunyuan_video_vae_bf16 
-                param_31=1, #hunyuan_video_I2V_720_fixed_fp8_e4m3fn 
-                param_32=1, #hyvid_I2V_lora_hair_growth 
-                param_33=2, #hyvideo_FastVideo_LoRA-fp8
-                param_34=1, #hunyuan_video_720_cfgdistill_fp8_e4m3fn 
-                param_35=1, #hyvid_I2V_lora_embrace 
-                param_36=1, #hunyuan_video_FastVideo_720_fp8_e4m3fn 
-                param_37=1, #FramePackI2V_HY_fp8_e4m3fn 
+                param_30=2, 
+                param_31=1, 
+                #param_32=1, 
+                #param_33=2, 
+                #param_34=1, 
+                #param_35=1, 
+                #param_36=1, 
+                #param_37=1, 
                 api_name="/handle_start_button"
         )
     if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":

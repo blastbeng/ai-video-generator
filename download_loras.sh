@@ -1,9 +1,9 @@
 #!/bin/sh
 hf download Kijai/HunyuanVideo_comfy hyvideo_FastVideo_LoRA-fp8.safetensors
-hf download Kijai/HunyuanVideo_comfy hunyuan_video_FastVideo_720_fp8_e4m3fn.safetensors
+#hf download Kijai/HunyuanVideo_comfy hunyuan_video_FastVideo_720_fp8_e4m3fn.safetensors
 hf download Kijai/HunyuanVideo_comfy hunyuan_video_720_cfgdistill_fp8_e4m3fn.safetensors
-hf download Kijai/HunyuanVideo_comfy hyvid_I2V_lora_embrace.safetensors
-hf download Kijai/HunyuanVideo_comfy hyvid_I2V_lora_hair_growth.safetensors
-hf download Kijai/HunyuanVideo_comfy hunyuan_video_vae_bf16.safetensors
-hf download Kijai/HunyuanVideo_comfy hunyuan_video_I2V_720_fixed_fp8_e4m3fn.safetensors
-hf download Kijai/HunyuanVideo_comfy FramePackI2V_HY_fp8_e4m3fn.safetensors
+#hf download Kijai/HunyuanVideo_comfy hyvid_I2V_lora_embrace.safetensors
+#hf download Kijai/HunyuanVideo_comfy hyvid_I2V_lora_hair_growth.safetensors
+#hf download Kijai/HunyuanVideo_comfy hunyuan_video_vae_bf16.safetensors
+#hf download Kijai/HunyuanVideo_comfy hunyuan_video_I2V_720_fixed_fp8_e4m3fn.safetensors
+#hf download Kijai/HunyuanVideo_comfy FramePackI2V_HY_fp8_e4m3fn.safetensors

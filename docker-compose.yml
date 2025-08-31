@@ -23,8 +23,8 @@ services:
         condition: service_healthy
     volumes:
       - ".env:/app/.env"
-    #  - "./framepack-studio/outputs:/app/outputs"
-      - "/mnt/d/generated:/app/outputs"
+      - "./framepack-studio/outputs:/app/outputs"
+    #  - "/mnt/d/generated:/app/outputs"
     image: "blastbeng/aivg:1.0.0"
     restart: unless-stopped
     healthcheck:
@@ -65,8 +65,8 @@ services:
     volumes:
     #  - "./framepack-studio/loras:/app/loras"
       - "$HOME/.cache/huggingface/hub/models--Kijai--HunyuanVideo_comfy/snapshots/b0bb3f4f83cbdce6d2c11c6db7d527749ae75c05:/app/loras"
-    #  - "./framepack-studio/outputs:/app/outputs"
-      - "/mnt/d/generated:/app/outputs"
+      - "./framepack-studio/outputs:/app/outputs"
+    #  - "/mnt/d/generated:/app/outputs"
       - "./.framepack:/app/.framepack"
       - "./modules/toolbox/model_gfpgan:/app/modules/toolbox/model_gfpgan"
       - "./modules/toolbox/model_esrgan:/app/modules/toolbox/model_esrgan"
@@ -113,8 +113,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-    #  - "./framepack-studio/outputs:/app/outputs"
-      - "/mnt/d/generated:/app/outputs"
+      - "./framepack-studio/outputs:/app/outputs"
       - weights:/app/weights
       - ext_weights:/app/ext_weights
       - huggingface:/root/.cache/huggingface
