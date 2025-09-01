@@ -435,7 +435,7 @@ def start_video_gen(client, config, photo_init, video_init, loras):
     return result
 
 @run_with_timer(max_execution_time=10800)
-def monitor_job(job_id):
+def monitor_job(client, job_id):
     monitor_result = client.predict(
             job_id=job_id,
             api_name="/monitor_job"
@@ -466,7 +466,7 @@ def get_video(client, mode, photo_init, video_init, prompt, loras, requested_sec
             gen_result = start_video_gen(client, config, photo_init, video_init, loras)
             if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
                 job_id = gen_result[1]
-                monitor_result = monitor_job(job_id)
+                monitor_result = monitor_job(client, job_id)
                 if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
                     generated_video = (os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video']))
                     if generated_video is not None:
