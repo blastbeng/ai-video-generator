@@ -8,22 +8,21 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=Europe/Rome
+      - MODE="WAN2GP"
     ports:
       - "5661:5661"
     depends_on:
-      aivg-fp-studio:
+      aivg-wan2gp:
         condition: service_healthy
       aivg-fooocus-api:
         condition: service_healthy
-      #aivg-mmaudio:
-      #  condition: service_healthy
       aivg-ollama:
         condition: service_healthy
       aivg-anythingllm:
         condition: service_healthy
     volumes:
       - ".env:/app/.env"
-      - "./framepack-studio/outputs:/app/outputs"
+      - "./outputs:/app/outputs"
     #  - "/mnt/d/generated:/app/outputs"
     image: "blastbeng/aivg:1.0.0"
     restart: unless-stopped
@@ -35,6 +34,7 @@ services:
       start_period: 45s
     networks:
       - aivg_network
+    entrypoint: ["./entrypoint-wan2gp.sh"]
   #aivg-nginx:
   #  image: lscr.io/linuxserver/nginx:latest
   #  container_name: aivg-nginx
@@ -48,35 +48,39 @@ services:
   #  ports:
   #    - 5662:5662
   #  restart: unless-stopped
-  aivg-fp-studio:
+  aivg-wan2gp:
     build:
       args:
         - CUDA_VERSION=12.8.1
-      dockerfile: Dockerfile.framepack-studio
+      dockerfile: Dockerfile.wan2gp
     pull_policy: build
-    container_name: aivg-fp-studio
-    image: blastbeng/aivg-fp-studio:1.0.0
+    container_name: aivg-wan2gp
+    image: blastbeng/aivg-wan2gp:1.0.0
     restart: unless-stopped
     environment:
       - PUID=1000
       - PGID=1000
+      - SERVER_NAME=0.0.0.0
+      - SERVER_PORT=7862
     ports:
-      - "7860:7860"
-    volumes:
-    #  - "./framepack-studio/loras:/app/loras"
-      - "$HOME/.cache/huggingface/hub/models--Kijai--HunyuanVideo_comfy/snapshots/b0bb3f4f83cbdce6d2c11c6db7d527749ae75c05:/app/loras"
-      - "./framepack-studio/outputs:/app/outputs"
-    #  - "/mnt/d/generated:/app/outputs"
-      - "./.framepack:/app/.framepack"
-      - "./modules/toolbox/model_gfpgan:/app/modules/toolbox/model_gfpgan"
-      - "./modules/toolbox/model_esrgan:/app/modules/toolbox/model_esrgan"
-      - "./modules/toolbox/model_rife:/app/modules/toolbox/model_rife"
-      - "./modules/toolbox/bin:/app/modules/toolbox/bin"
+      - "7862:7862"
+    volumes:      
       - "$HOME/.cache/huggingface:/app/hf_download"
-      - gfpgan_weights:/app/gfpgan/weights
+      - "$HOME/.cache/huggingface:/root/.cache/huggingface"
+      - ./Wan2GP/configs:/app/configs
+      - ./Wan2GP/loras:/app/loras
+      - ./Wan2GP/loras_flux:/app/loras_flux
+      - ./Wan2GP/loras_hunyuan:/app/loras_hunyuan
+      - ./Wan2GP/loras_hunyuan_i2v:/app/loras_hunyuan_i2v
+      - ./Wan2GP/loras_i2v:/app/loras_i2v
+      - ./Wan2GP/loras_ltxv:/app/loras_ltxv
+      - ./Wan2GP/loras_qwen:/app/loras_qwen
+      - ./Wan2GP/ckpts:/app/ckpts
+      - "./outputs:/app/outputs"
+      - "./wgp_config.json:/app/wgp_config.json"
     runtime: "nvidia"
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://127.0.0.1:7860"]
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:7862"]
       interval: 60s
       timeout: 5s
       retries: 3
@@ -97,35 +101,6 @@ services:
     runtime: "nvidia"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8888"]
-      interval: 60s
-      timeout: 5s
-      retries: 3
-      start_period: 45s
-    networks:
-      - aivg_network
-  aivg-mmaudio-api:
-    build:
-      args:
-        - CUDA_VERSION=12.8.1
-      dockerfile: Dockerfile.mmaudio-api
-    image: blastbeng/aivg-mmaudio-api:1.0.0
-    container_name: aivg-mmaudio-api
-    ports:
-      - "8000:8000"
-    volumes:
-      - "./framepack-studio/outputs:/app/outputs"
-      - weights:/app/weights
-      - ext_weights:/app/ext_weights
-      - huggingface:/root/.cache/huggingface
-    environment:
-      - PYTHONUNBUFFERED=1
-      # Increase timeout for synchronous processing
-      - UVICORN_TIMEOUT=3600
-      - TORCH_USE_INFERENCE_MODE=1
-    restart: unless-stopped
-    runtime: "nvidia"
-    healthcheck:
-      test: ["CMD", "curl", "-X", "POST", "http://127.0.0.1:8000/process"]
       interval: 60s
       timeout: 5s
       retries: 3
@@ -198,7 +173,3 @@ networks:
     driver: bridge
 volumes:
   fooocus-data:
-  weights:
-  ext_weights:
-  huggingface:
-  gfpgan_weights:

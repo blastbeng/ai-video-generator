@@ -1,0 +1,27 @@
+{
+    "attention_mode": "auto",
+    "transformer_types": [],
+    "transformer_quantization": "int8",
+    "text_encoder_quantization": "int8",
+    "save_path": "outputs",
+    "image_save_path": "outputs",
+    "compile": "",
+    "metadata_type": "metadata",
+    "boost": 1,
+    "clear_file_list": 5,
+    "vae_config": 0,
+    "profile": 4,
+    "preload_model_policy": [],
+    "UI_theme": "default",
+    "video_output_codec": "libx264_8",
+    "image_output_codec": "jpeg_95",
+    "last_model_per_family": {
+        "wan2_2": "ti2v_2_2_fastwan"
+    },
+    "last_model_type": "ti2v_2_2_fastwan",
+    "last_resolution_choice": "1280x720",
+    "last_resolution_per_group": {
+        "720p": "1280x720"
+    },
+    "last_advanced_choice": true
+}

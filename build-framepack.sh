@@ -49,8 +49,6 @@ fi
 
 cd $SCRIPT_DIR
 
-$SCRIPT_DIR/download_loras.sh
-
-docker compose build
+docker compose -f docker-compose.framepack.yml build
 
 

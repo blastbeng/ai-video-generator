@@ -120,50 +120,55 @@ def add_audio_to_video(file_path, prompt, video_len):
             return mmaudio_file_path
     return None
 
-def add_new_generation(video_len, mode, gen_photo, message, prompt, image, video):
+def parse_prompt(message, prompt):
+    prompt_image = None
+    if prompt is None:
+        message = random.choice(json.loads(os.environ.get('PROMPT_LIST'))) if message is None else message
+        prompt_image = message
+        data = {
+            "message": message,
+            "mode": "chat"
+        }
+        headers = {
+            'Authorization': 'Bearer ' + os.environ.get("ANYTHING_LLM_API_KEY")
+        }
+        anything_llm_url = os.environ.get("ANYTHING_LLM_ENDPOINT") + "/api/v1/workspace/" + os.environ.get("ANYTHING_LLM_WORKSPACE") + "/chat"
+        anything_llm_response = requests.post(url=anything_llm_url,
+                        data=data,
+                        headers=headers)
+        
+        if (anything_llm_response.status_code == 200):
+            
+            prompt = anything_llm_response.json()["textResponse"].rstrip()
+            if gen_photo:
+                data_prompt_img = {
+                    "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + prompt + '"',
+                    "mode": "chat"
+                }
+                anything_llm_response_prompt_img = requests.post(url=anything_llm_url,
+                                data=data_prompt_img,
+                                headers=headers)
+                if (anything_llm_response_prompt_img.status_code == 200):
+                    prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
+                else:
+                    raise Exception("Error getting response from AnythingLLM")
+            else:
+                prompt_image = prompt
+        else:
+            raise Exception("Error getting response from AnythingLLM")
+    else:
+        prompt_image = prompt
+
+    return prompt, prompt_image
+
+def add_new_generation_framepack(video_len, mode, gen_photo, message, prompt, image, video):
     client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
     result = client.predict(
 		api_name="/check_for_current_job"
     )
     if result is not None and len(result) > 0 and (result[0] is None or result[0] == ""):
-        prompt_image = None
-        if prompt is None:
-            message = random.choice(json.loads(os.environ.get('PROMPT_LIST'))) if message is None else message
-            prompt_image = message
-            data = {
-                "message": message,
-                "mode": "chat"
-            }
-            headers = {
-                'Authorization': 'Bearer ' + os.environ.get("ANYTHING_LLM_API_KEY")
-            }
-            anything_llm_url = os.environ.get("ANYTHING_LLM_ENDPOINT") + "/api/v1/workspace/" + os.environ.get("ANYTHING_LLM_WORKSPACE") + "/chat"
-            anything_llm_response = requests.post(url=anything_llm_url,
-                            data=data,
-                            headers=headers)
-            
-            if (anything_llm_response.status_code == 200):
-                
-                prompt = anything_llm_response.json()["textResponse"].rstrip()
-                if gen_photo:
-                    data_prompt_img = {
-                        "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + prompt + '"',
-                        "mode": "chat"
-                    }
-                    anything_llm_response_prompt_img = requests.post(url=anything_llm_url,
-                                    data=data_prompt_img,
-                                    headers=headers)
-                    if (anything_llm_response_prompt_img.status_code == 200):
-                        prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
-                    else:
-                        raise Exception("Error getting response from AnythingLLM")
-                else:
-                    prompt_image = prompt
-            else:
-                raise Exception("Error getting response from AnythingLLM")
-        else:
-            prompt_image = prompt
-
+        
+        prompt, prompt_image = parse_prompt(message, prompt)
         photo_init = None
         video_init = None
         if image is not None:
@@ -176,52 +181,23 @@ def add_new_generation(video_len, mode, gen_photo, message, prompt, image, video
 
         photo_end = None
         efi = 1
-        #loras = [
-        #            'hunyuan_video_vae_bf16', 
-        #            'hunyuan_video_I2V_720_fixed_fp8_e4m3fn', 
-        #            'hyvid_I2V_lora_hair_growth',
-        #            'hyvideo_FastVideo_LoRA-fp8',
-        #            'hunyuan_video_720_cfgdistill_fp8_e4m3fn',
-        #            'hyvid_I2V_lora_embrace', 
-        #            'hunyuan_video_FastVideo_720_fp8_e4m3fn', 
-        #            'FramePackI2V_HY_fp8_e4m3fn'
-        #        ]
         loras = [
-                    'hyvideo_FastVideo_LoRA-fp8',
-                    'hunyuan_video_720_cfgdistill_fp8_e4m3fn',
-                ]
+            'hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn', 
+            'HunyuanVideo_dashtoon_keyframe_lora_converted_comfy_bf16', 
+            'hyvid_I2V_lora_hair_growth', 
+            'hyvideo_FastVideo_LoRA-fp8', 
+            'hyvid_I2V_lora_embrace', 
+            'HunyuanVideo_dashtoon_keyframe_lora_converted_bf16'
+        ]
         seed = random.randint(0, 9223372036854775807)
 
         generated_video = get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, 0, video_len)
-        if generated_video is not None:
-            result_upscale = client.predict(
-                    video_path={"video":handle_file(generated_video)},
-                    model_key_selected="RealESRGAN_x2plus",
-                    output_scale_factor_from_slider=2,
-                    tile_size=0,
-                    enhance_face_ui=True,
-                    denoise_strength_from_slider=0.5,
-                    use_streaming=False,
-                    api_name="/tb_handle_upscale_video"
-            )
-            if len(result_upscale) > 0 and 'video' in result_upscale[0]:
-                file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
-                mp4 = add_audio_to_video(file_upscaled, prompt_image, video_len)
-                return mp4
-        return None
+        return generated_video
     else:
         return False
     return None
 
 def get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, actual_seconds, requested_seconds):
-    OFFSET_SECONDS = 6
-    missing_seconds = requested_seconds - actual_seconds
-    actual_seconds = actual_seconds + OFFSET_SECONDS
-
-    seconds_to_gen = OFFSET_SECONDS
-    if missing_seconds > 0 and missing_seconds < OFFSET_SECONDS:
-        seconds_to_gen = missing_seconds
-
     model = "F1" if mode else "Original"
     if video_init is not None:
         model = "Video F1" if mode else "Video"
@@ -237,12 +213,12 @@ def get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, ac
                 param_8=False,
                 param_9=seconds_to_gen,
                 param_10=9, # window size
-                param_11=10, # steps
+                param_11=25, # steps
                 param_12=1,
                 param_13=10,
                 param_14=0, #param_14=0.7,
                 param_15="None",
-                param_16=25,
+                param_16=30,
                 param_17=0.15,
                 param_18=0.35,
                 param_19=5,
@@ -255,14 +231,12 @@ def get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, ac
                 param_26=768, #param_26=768,
                 param_27=True,
                 param_28=5,
-                param_30=2, 
+                param_30=1, 
                 param_31=1, 
-                #param_32=1, 
-                #param_33=2, 
-                #param_34=1, 
-                #param_35=1, 
-                #param_36=1, 
-                #param_37=1, 
+                param_32=1, 
+                param_33=1, 
+                param_34=1, 
+                param_35=1, 
                 api_name="/handle_start_button"
         )
     if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
@@ -272,11 +246,23 @@ def get_video(client, mode, photo_init, video_init, efi, prompt, seed, loras, ac
                 api_name="/monitor_job"
         )
         if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
-            intermediate_video = os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video'])
-            if actual_seconds >= requested_seconds:
-                return intermediate_video
-            else:
-                return get_video(client, mode, None, intermediate_video, efi, prompt, seed, loras, actual_seconds, requested_seconds)
+            generated_video = (os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video']))
+            if generated_video is not None:
+                result_upscale = client.predict(
+                        video_path={"video":handle_file(generated_video)},
+                        model_key_selected="RealESRGAN_x2plus",
+                        output_scale_factor_from_slider=2,
+                        tile_size=0,
+                        enhance_face_ui=True,
+                        denoise_strength_from_slider=0.5,
+                        use_streaming=False,
+                        api_name="/tb_handle_upscale_video"
+                )
+                if len(result_upscale) > 0 and 'video' in result_upscale[0]:
+                    file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
+                    mp4 = add_audio_to_video(file_upscaled, prompt_image, video_len)
+                    return mp4
+        return None
     return None
 
 def generate_image_pre(prompt):
@@ -356,7 +342,7 @@ class Healthcheck(Resource):
 class GenerateMessage(Resource):
   def post (self, mode = 1, gen_photo = 1, video_len = 5, message = None):
     try:
-        future = executor.submit(add_new_generation, video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), message, None, request.files["image"].read() if "image" in request.files else None, request.files["video"].read() if "video" in request.files else None)
+        future = executor.submit(add_new_generation_framepack, video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), message, None, request.files["image"].read() if "image" in request.files else None, request.files["video"].read() if "video" in request.files else None)
         mp4 = future.result()
         if mp4 is None:
             return make_response('Error generating video', 500)
@@ -377,7 +363,7 @@ class GenerateMessage(Resource):
 class GeneratePrompt(Resource):
   def post (self, prompt = None, mode = 1, gen_photo = 1, video_len = 5):
     try:
-        future = executor.submit(add_new_generation, video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), None, prompt, request.files["image"].read() if "image" in request.files else None, request.files["video"].read() if "video" in request.files else None)
+        future = executor.submit(add_new_generation_framepack, video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), None, prompt, request.files["image"].read() if "image" in request.files else None, request.files["video"].read() if "video" in request.files else None)
         mp4 = future.result()
         if mp4 is None:
             return make_response('Error generating video', 500)

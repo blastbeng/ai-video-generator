@@ -251,3 +251,12 @@ modules/
 
 .framepack
 .framepack/
+
+Wan2GP
+Wan2GP/
+
+outputs
+outputs/
+
+wgp_config.json
+aivg/configs/*

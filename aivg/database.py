@@ -1,0 +1,138 @@
+import os
+import sys
+import logging
+from sqlalchemy.sql import func
+from sqlalchemy import create_engine, insert, select, update, delete, Table, Column, Integer, String, Float, MetaData, DateTime, and_
+
+SQLITE      = 'sqlite'
+PARAMS     = 'params'
+
+class Database:
+  DB_ENGINE = {
+      SQLITE: 'sqlite:////app/configs/{DB}'
+  }
+
+  # Main DB Connection Ref Obj
+  db_engine = None
+  def __init__(self, dbtype, username='', password='', dbname=''):
+    dbtype = dbtype.lower()
+    engine_url = self.DB_ENGINE[dbtype].format(DB=dbname)
+    self.db_engine = create_engine(engine_url)
+
+  metadata = MetaData()
+
+  #skipped
+  # 0 = empty
+  # 1 = ok
+  # 2 = ko
+
+  params = Table(PARAMS, metadata,
+                Column('id', Integer, primary_key=True, autoincrement=True),
+                Column('skipped', Integer, nullable=False),
+                Column('requested_seconds', Integer, nullable=False),
+                Column('has_input_image', Integer, nullable=False),
+                Column('has_input_video', Integer, nullable=False),
+                Column('model', String(50), nullable=False),
+                Column('seed', Integer, nullable=False),
+                Column('window_size', Integer, nullable=False),
+                Column('steps', Integer, nullable=False),
+                Column('cache_type', String(50), nullable=False),
+                Column('tea_cache_steps', Integer, nullable=False),
+                Column('tea_cache_rel_l1_thresh', Float, nullable=False),
+                Column('mag_cache_threshold', Float, nullable=False),
+                Column('mag_cache_max_consecutive_skips', Integer, nullable=False),
+                Column('mag_cache_retention_ratio', Float, nullable=False),
+                Column('distilled_cfg_scale', Float, nullable=False),
+                Column('cfg_scale', Float, nullable=False),
+                Column('cfg_rescale', Float, nullable=False),
+                Column('tms_insert', DateTime(timezone=True), server_default=func.now()),
+                Column('tms_update', DateTime(timezone=True), onupdate=func.now())
+                )
+
+def create_db_tables(self):
+  try:
+    self.metadata.create_all(self.db_engine)
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)
+
+def insert_wrong_config(self, config):
+  try:
+    stmt = insert(self.params).values(skipped=0).values(has_input_image=config['has_input_image']).values(has_input_video=config['has_input_video']).values(requested_seconds=config['requested_seconds']).values(model=config['model']).values(seed=config['seed']).values(window_size=config['window_size']).values(steps=config['steps']).values(cache_type=config['cache_type']).values(tea_cache_steps=config['tea_cache_steps']).values(tea_cache_rel_l1_thresh=config['tea_cache_rel_l1_thresh']).values(mag_cache_threshold=config['mag_cache_threshold']).values(mag_cache_max_consecutive_skips=config['mag_cache_max_consecutive_skips']).values(mag_cache_retention_ratio=config['mag_cache_retention_ratio']).values(distilled_cfg_scale=config['distilled_cfg_scale']).values(cfg_scale=config['cfg_scale']).values(cfg_rescale=config['cfg_rescale']).prefix_with('OR IGNORE')
+    compiled = stmt.compile()
+    with self.db_engine.connect() as conn:
+      result = conn.execute(stmt)
+      conn.commit()
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)
+
+def select_config(self, config):
+  try:
+    value = None
+    stmt = select(self.params.c.id).where(self.params.c.skipped == 2,self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.requested_seconds==config['requested_seconds'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'])
+    
+    compiled = stmt.compile()
+    with self.db_engine.connect() as conn:
+      cursor = conn.execute(stmt)
+      records = cursor.fetchall()
+
+      if len(records) > 0:
+        value == row
+      cursor.close()
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)
+  finally:
+    return value
+
+def update_ok_config(self, config):
+  try:
+    value = []
+    stmt = update(self.params).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.requested_seconds==config['requested_seconds'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale']).values(skipped=1)
+           
+    compiled = stmt.compile()
+    with self.db_engine.connect() as conn:
+      result = conn.execute(stmt)
+      conn.commit()
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)
+
+def update_skipped_config(self, config):
+  try:
+    value = []
+    stmt = update(self.params).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.requested_seconds==config['requested_seconds'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale']).values(skipped=2)
+           
+    compiled = stmt.compile()
+    with self.db_engine.connect() as conn:
+      result = conn.execute(stmt)
+      conn.commit()
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)
+
+def delete_wrong_entries(self):
+  try:
+    value = []
+    stmt = delete(self.params).where(self.params.c.skipped==0)
+           
+    compiled = stmt.compile()
+    with self.db_engine.connect() as conn:
+      result = conn.execute(stmt)
+      conn.commit()
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)

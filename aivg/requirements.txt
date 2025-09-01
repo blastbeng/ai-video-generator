@@ -10,3 +10,4 @@ Flask-APScheduler==1.12.4
 gradio_client
 aiohttp
 requests
+sqlalchemy==2.0.7
