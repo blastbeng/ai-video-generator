@@ -87,7 +87,28 @@ def select_config(self, config):
       records = cursor.fetchall()
 
       if len(records) > 0:
-        value == row
+        value = records[0]
+      cursor.close()
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)
+  finally:
+    return value
+
+def select_config_by_skipped(self, skipped):
+  try:
+    value = None
+    stmt = select(self.params.c.id,self.params.c.skipped).where(self.params.c.skipped==skipped)
+    
+    compiled = stmt.compile()
+    with self.db_engine.connect() as conn:
+      cursor = conn.execute(stmt)
+      records = cursor.fetchall()
+
+      if len(records) > 0:
+        value = records[0]
       cursor.close()
   except Exception as e:
     exc_type, exc_obj, exc_tb = sys.exc_info()

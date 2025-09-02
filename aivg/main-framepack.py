@@ -129,68 +129,88 @@ def add_audio_to_video(file_path, video_len):
     return None
 
 
-def add_new_generation_framepack(video_len, mode, gen_photo, message, prompt, image, video):
-    client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
-    result = client.predict(
-		api_name="/check_for_current_job"
-    )
-    if result is not None and len(result) > 0 and (result[0] is None or result[0] == ""):
-        
-        prompt_image = None
-        if prompt is None:
-            message = random.choice(json.loads(os.environ.get('PROMPT_LIST'))) if message is None else message
-            prompt_image = message
-            data = {
-                "message": message,
-                "mode": "chat"
-            }
-            headers = {
-                'Authorization': 'Bearer ' + os.environ.get("ANYTHING_LLM_API_KEY")
-            }
-            anything_llm_url = os.environ.get("ANYTHING_LLM_ENDPOINT") + "/api/v1/workspace/" + os.environ.get("ANYTHING_LLM_WORKSPACE") + "/chat"
-            anything_llm_response = requests.post(url=anything_llm_url,
-                            data=data,
-                            headers=headers)
-            
-            if (anything_llm_response.status_code == 200):
-                
-                prompt = anything_llm_response.json()["textResponse"].rstrip()
-                if gen_photo:
-                    data_prompt_img = {
-                        "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + prompt + '"',
-                        "mode": "chat"
-                    }
-                    anything_llm_response_prompt_img = requests.post(url=anything_llm_url,
-                                    data=data_prompt_img,
-                                    headers=headers)
-                    if (anything_llm_response_prompt_img.status_code == 200):
-                        prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
-                    else:
-                        raise Exception("Error getting response from AnythingLLM")
-                else:
-                    prompt_image = prompt
-            else:
-                raise Exception("Error getting response from AnythingLLM")
-        else:
-            prompt_image = prompt
-        photo_init = None
-        video_init = None
-        if image is not None:
-            photo_init = save_file(image, ".png")
-        elif video is not None:
-            video_init = save_file(video, ".mp4")
-        elif gen_photo:
-            start_image = generate_image(prompt_image)
-            photo_init = download_file(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1"), "png")
+def add_new_generation_framepack(video_len, mode, gen_photo, message, prompt, image, video):    
+    if database.select_config_by_skipped(dbms, 0) is None:
 
-        photo_end = None
-        mp4, config = get_video(client, mode, photo_init, video_init, prompt, video_len)
-        return mp4, config
+        for n in range(900):
+            config = get_config(mode, image != None or gen_photo, video, video_len)
+            value = database.select_config(dbms, config)
+            if value is not None:
+                config["generation_id"] = value[0]
+                config["skipped"] =  value[1]
+            if config["skipped"] is not None and config["skipped"] == 2:
+                logging.warn("Found skipped params: %s", str(config))
+            else:
+                break
+
+        if config["skipped"] is None or config["skipped"] == 0 or config["skipped"] == 2:
+            
+            if config["skipped"] is None:
+                logging.warn("Saving params to database")
+                config["generation_id"] = database.insert_wrong_config(dbms, config)
+                config["skipped"] = 0
+        
+            prompt_image = None
+            if prompt is None:
+                message = random.choice(json.loads(os.environ.get('PROMPT_LIST'))) if message is None else message
+                prompt_image = message
+                data = {
+                    "message": message,
+                    "mode": "chat"
+                }
+                headers = {
+                    'Authorization': 'Bearer ' + os.environ.get("ANYTHING_LLM_API_KEY")
+                }
+                anything_llm_url = os.environ.get("ANYTHING_LLM_ENDPOINT") + "/api/v1/workspace/" + os.environ.get("ANYTHING_LLM_WORKSPACE") + "/chat"
+                anything_llm_response = requests.post(url=anything_llm_url,
+                                data=data,
+                                headers=headers)
+                
+                if (anything_llm_response.status_code == 200):
+                    
+                    prompt = anything_llm_response.json()["textResponse"].rstrip()
+                    if gen_photo:
+                        data_prompt_img = {
+                            "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + prompt + '"',
+                            "mode": "chat"
+                        }
+                        anything_llm_response_prompt_img = requests.post(url=anything_llm_url,
+                                        data=data_prompt_img,
+                                        headers=headers)
+                        if (anything_llm_response_prompt_img.status_code == 200):
+                            prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
+                        else:
+                            raise Exception("Error getting response from AnythingLLM")
+                    else:
+                        prompt_image = prompt
+                else:
+                    raise Exception("Error getting response from AnythingLLM")
+            else:
+                prompt_image = prompt
+            photo_init = None
+            video_init = None
+            if image is not None:
+                photo_init = save_file(image, ".png")
+            elif video is not None:
+                video_init = save_file(video, ".mp4")
+            elif gen_photo:
+                start_image = generate_image(prompt_image)
+                photo_init = download_file(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1"), "png")
+
+            config["prompt"] = prompt
+
+            photo_end = None
+            mp4, config = get_video(mode, photo_init, video_init, config)
+            return mp4, config
+        else:
+            logging.error("I haven't found any working config")
     else:
+        database.delete_wrong_entries(dbms)
         return False, None
+    database.delete_wrong_entries(dbms)
     return None, None
 
-def get_config(mode, photo_init, video_init, requested_seconds, prompt):
+def get_config(mode, photo_init, video_init, requested_seconds):
     config = {}
     model = "F1" if mode else "Original"
     if video_init is not None:
@@ -213,7 +233,8 @@ def get_config(mode, photo_init, video_init, requested_seconds, prompt):
     config["cfg_rescale"] = round(random.uniform(-0.01, 1.01), 2)
     config["lora"] = "hyvideo_FastVideo_LoRA-fp8"
     config["lora_weight"] = round(random.uniform(-0.01, 2.01), 2)
-    config["prompt"] = prompt
+    config["prompt"] = ""
+    config["skipped"] = None
     return config
 
 def start_video_gen(client, config, photo_init, video_init):
@@ -260,70 +281,62 @@ def monitor_job(client, job_id):
     return monitor_result
 
 
-def get_video(client, mode, photo_init, video_init, prompt, requested_seconds):
+def get_video(mode, photo_init, video_init, config):
 
-    generation_id = None
-    skipped = None
-
-    for n in range(900):
-        config = get_config(mode, photo_init, video_init, requested_seconds, prompt)
-        value = database.select_config(dbms, config)
-        if value is not None:
-            generation_id = value[0]
-            skipped = value[1]
-        if skipped is not None and skipped == 2:
-            logging.warn("Found skipped params: %s", str(config))
-        else:
-            break
-
-    if skipped is None or skipped == 0 or skipped == 2:
-        if skipped is None:
-            logging.warn("Saving params to database")
-            generation_id = database.insert_wrong_config(dbms, config)
-        config["generation_id"] = generation_id
-        logging.warn("Launching with params: %s", str(config))
-        gen_result = start_video_gen(client, config, photo_init, video_init)
-        if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
-            job_id = gen_result[1]
-            future = executor.submit(monitor_job, client, job_id)
-            try:
-                monitor_result = future.result(timeout=10800)
-            except concurrent.futures.TimeoutError:
-                logging.error("Max Execution Time reached")
-                logging.error("Updating skipped param to 2 to database for config: " + str(config))
-                database.update_config(dbms, generation_id, 2)
-                return None, None
+    client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
+    logging.warn("Launching with params: %s", str(config))
+    gen_result = start_video_gen(client, config, photo_init, video_init)
+    if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
+        job_id = gen_result[1]
+        future = executor.submit(monitor_job, client, job_id)
+        monitor_result = None
+        try:
+            monitor_result = future.result(timeout=10800)
+            future.cancel()
+        except (concurrent.futures.TimeoutError, concurrent.futures._base.CancelledError) as e:
+            logging.error("Max Execution Time reached")
+            logging.error("Stopping current generation")
             
-            if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
-                generated_video = (os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video']))
-                if generated_video is not None:
-                    logging.warn("Generation ok")
-                        
-                    if skipped is None or skipped == 0:
-                        logging.warn("Updating skipped param to 0 to database for config: " + str(config))
-                        database.update_config(dbms, generation_id, 1)
-                    result_upscale = client.predict(
-                            video_path={"video":handle_file(generated_video)},
-                            model_key_selected="RealESRGAN_x2plus",
-                            output_scale_factor_from_slider=2,
-                            tile_size=0,
-                            enhance_face_ui=True,
-                            denoise_strength_from_slider=0.5,
-                            use_streaming=False,
-                            api_name="/tb_handle_upscale_video"
-                    )
-                    if len(result_upscale) > 0 and 'video' in result_upscale[0]:
-                        logging.warn("Upscaling ok")
-                        file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
-                        mp4 = add_audio_to_video(file_upscaled, config["requested_seconds"])
-                        if mp4 is not None:
-                            logging.warn("Adding audio ok")
-                            
-                            logging.warn("Process complete")
-                            return mp4, config
-            return None, None
-    else:
-        logging.error("I haven't found any working config")
+            result_current = client.predict(
+            	api_name="/check_for_current_job"
+            )
+            while True:
+                if result_current is None or len(result_current) == 0 or (len(result_current) > 0 and (result_current[0] is None or result_current[0] == "")):
+                    break
+                else:
+                    time.sleep(10)
+                    result_stop = client.predict(api_name="/end_process_with_update")
+                    result_current = client.predict(api_name="/check_for_current_job")
+            logging.error("Updating skipped param to 2 to database for id: " + str(config["generation_id"]))
+            database.update_config(dbms, config["generation_id"], 2)
+            raise(concurrent.futures.TimeoutError)
+        
+        if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
+            generated_video = (os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video']))
+            if generated_video is not None:
+                logging.warn("Generation ok")
+                result_upscale = client.predict(
+                        video_path={"video":handle_file(generated_video)},
+                        model_key_selected="RealESRGAN_x2plus",
+                        output_scale_factor_from_slider=2,
+                        tile_size=0,
+                        enhance_face_ui=True,
+                        denoise_strength_from_slider=0.5,
+                        use_streaming=False,
+                        api_name="/tb_handle_upscale_video"
+                )
+                if len(result_upscale) > 0 and 'video' in result_upscale[0]:
+                    logging.warn("Upscaling ok")
+                    file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
+                    mp4 = add_audio_to_video(file_upscaled, config["requested_seconds"])
+                    if mp4 is not None:
+                        logging.warn("Adding audio ok")
+                        if config["skipped"] == 0:
+                            logging.warn("Updating skipped param to 1 to database for config: " + str(config))
+                            database.update_config(dbms, config["generation_id"], 1)
+                        logging.warn("Process complete")
+                        return mp4, config
+    database.delete_wrong_entries(dbms)
     return None, None
 
 def generate_image_pre(prompt):
@@ -437,6 +450,8 @@ class GenerateMessage(Resource):
         response.headers['X-FramePack-Generation-Id'] = str(config["generation_id"]).encode('utf-8').decode('latin-1')
         
         return response
+    except concurrent.futures.TimeoutError:
+      return make_response('Video generation took to long', 504)
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -482,6 +497,8 @@ class GeneratePrompt(Resource):
         response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Generation-Id'] = str(config["generation_id"]).encode('utf-8').decode('latin-1')
         return response
+    except concurrent.futures.TimeoutError:
+      return make_response('Video generation took to long', 504)
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -494,13 +511,29 @@ class GeneratePrompt(Resource):
 class GenerateImage(Resource):
   def post (self, prompt = None):
     try:
-        future = executor.submit(generate_image_pre, prompt)
-        image = future.result()
-        if image is None:
-            return make_response('Error generating image', 500)
+        if database.select_config_by_skipped(dbms, 0) is None:
+            image = generate_image_pre(prompt)
+            if image is None:
+                return make_response('Error generating image', 500)
+            else:
+                return send_file(image, attachment_filename=str(uuid.uuid4()) + '.png', mimetype='image/png')
         else:
-            return send_file(image, attachment_filename=str(uuid.uuid4()) + '.png', mimetype='image/png')
+            return make_response('Another generation in progress', 206)
+
         
+    except Exception as e:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      return make_response('Error generating image', 500)
+
+@limiter.limit("1/second")
+@nsaivg.route('/generate/skip/<int:generation_id>/')
+class GenerateImage(Resource):
+  def post (self, generation_id = None):
+    try:
+        database.update_config(dbms, generation_id, 2)
+        return make_response('Done', 200)        
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
