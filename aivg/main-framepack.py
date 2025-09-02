@@ -280,6 +280,7 @@ def get_video(client, mode, photo_init, video_init, prompt, requested_seconds):
         if skipped is None:
             logging.warn("Saving params to database")
             generation_id = database.insert_wrong_config(dbms, config)
+        config["generation_id"] = generation_id
         logging.warn("Launching with params: %s", str(config))
         gen_result = start_video_gen(client, config, photo_init, video_init)
         if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
@@ -433,6 +434,7 @@ class GenerateMessage(Resource):
         response.headers['X-FramePack-Lora'] = config["lora"].encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Generation-Id'] = str(config["generation_id"]).encode('utf-8').decode('latin-1')
         
         return response
     except Exception as e:
@@ -478,6 +480,7 @@ class GeneratePrompt(Resource):
         response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Prompt'] = config["prompt"].encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Generation-Id'] = str(config["generation_id"]).encode('utf-8').decode('latin-1')
         return response
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
