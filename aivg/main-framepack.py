@@ -201,8 +201,8 @@ def get_config(mode, photo_init, video_init, requested_seconds, prompt):
     config["requested_seconds"] = requested_seconds
     config["seed"] = random.randint(0, 9223372036854775807)
     config["window_size"] = random.randint(9, 15)
-    config["steps"] = random.randint(25, 50)
-    config["cache_type"] = random.choice(["MagCache","TeaCache"])
+    config["steps"] = random.randint(10, 50)
+    config["cache_type"] = random.choice(["None","MagCache","TeaCache"])
     config["tea_cache_steps"] = random.randint(1, 50)
     config["tea_cache_rel_l1_thresh"] = round(random.uniform(0, 1.01), 2)
     config["mag_cache_threshold"] = round(random.uniform(0, 1), 2)
@@ -229,7 +229,7 @@ def start_video_gen(client, config, photo_init, video_init):
         param_8=False,
         param_9=config["requested_seconds"],
         param_10=config["window_size"], # window size
-        param_11=1, #config["steps"],
+        param_11=config["steps"],
         param_12=config["cfg_scale"],
         param_13=config["distilled_cfg_scale"],
         param_14=config["cfg_rescale"],
@@ -242,7 +242,7 @@ def start_video_gen(client, config, photo_init, video_init):
         param_21=4,
         param_22="Noise",
         param_23=True,
-        param_24=[config["lora"]] if bool(random.getrandbits(1)) else [],
+        param_24=[config["lora"]] if (bool(random.getrandbits(1)) and config["lora"] != "") else [],
         param_25=512, #param_25=512,
         param_26=768, #param_26=768,
         param_27=True,
@@ -262,12 +262,16 @@ def monitor_job(client, job_id):
 
 def get_video(client, mode, photo_init, video_init, prompt, requested_seconds):
 
+    generation_id = None
     skipped = None
 
     for n in range(900):
         config = get_config(mode, photo_init, video_init, requested_seconds, prompt)
         value = database.select_config(dbms, config)
-        if skipped is not None and skipped == 1:
+        if value is not None:
+            generation_id = value[0]
+            skipped = value[1]
+        if skipped is not None and skipped == 2:
             logging.warn("Found skipped params: %s", str(config))
         else:
             break
@@ -275,7 +279,7 @@ def get_video(client, mode, photo_init, video_init, prompt, requested_seconds):
     if skipped is None or skipped == 0 or skipped == 2:
         if skipped is None:
             logging.warn("Saving params to database")
-            database.insert_wrong_config(dbms, config)
+            generation_id = database.insert_wrong_config(dbms, config)
         logging.warn("Launching with params: %s", str(config))
         gen_result = start_video_gen(client, config, photo_init, video_init)
         if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
@@ -286,7 +290,7 @@ def get_video(client, mode, photo_init, video_init, prompt, requested_seconds):
             except concurrent.futures.TimeoutError:
                 logging.error("Max Execution Time reached")
                 logging.error("Updating skipped param to 2 to database for config: " + str(config))
-                database.update_skipped_config(dbms, config)
+                database.update_config(dbms, generation_id, 2)
                 return None, None
             
             if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
@@ -296,7 +300,7 @@ def get_video(client, mode, photo_init, video_init, prompt, requested_seconds):
                         
                     if skipped is None or skipped == 0:
                         logging.warn("Updating skipped param to 0 to database for config: " + str(config))
-                        database.update_ok_config(dbms, config)
+                        database.update_config(dbms, generation_id, 1)
                     result_upscale = client.predict(
                             video_path={"video":handle_file(generated_video)},
                             model_key_selected="RealESRGAN_x2plus",
@@ -400,20 +404,22 @@ class Healthcheck(Resource):
 class GenerateMessage(Resource):
   def post (self, mode = 1, gen_photo = 1, video_len = 5, message = None):
     try:
-        mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), message, None, request.files["image"].read() if "image" in request.files else None, request.files["video"].read() if "video" in request.files else None)
+        start = time.time()
+        photo_init = request.files["image"].read() if "image" in request.files else None
+        video_init = request.files["video"].read() if "video" in request.files else None
+        mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), message, None, photo_init, video_init)
         if mp4 is None:
             return make_response('Error generating video', 500)
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
+        end = time.time()
         
         response = send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+        response.headers['X-FramePack-Has-Image-Input'] = ("True" if photo_init is not None else "False").encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Has-Video-Input'] = ("True" if video_init is not None else "False").encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Seed'] = str(config["seed"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Model'] = config["model"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Lora'] = config["lora"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Lora-Weight'] = config["lora_weight"].encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Seconds'] = (str(config["requested_seconds"])).encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Has-Image-Input'] = ("True" if photo_init is not None else False).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Has-Video-Input'] = ("True" if video_init is not None else False).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Window-Size'] = (str(config["window_size"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Steps'] = (str(config["steps"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-DistilledCfgScale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
@@ -423,13 +429,11 @@ class GenerateMessage(Resource):
         response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn'] = str(hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-HunyuanVideo_dashtoon_keyframe_lora_converted_comfy_bf16'] = str(HunyuanVideo_dashtoon_keyframe_lora_converted_comfy_bf16_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-hyvid_I2V_lora_hair_growth'] = str(hyvid_I2V_lora_hair_growth_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-hyvideo_FastVideo_LoRA-fp8'] = str(hyvideo_FastVideo_LoRA_fp8_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-hyvid_I2V_lora_embrace'] = str(hyvid_I2V_lora_embrace_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-HunyuanVideo_dashtoon_keyframe_lora_converted_bf16'] = str(HunyuanVideo_dashtoon_keyframe_lora_converted_bf16_weight).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Prompt'] = prompt.encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Prompt'] = config["prompt"].encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Lora'] = config["lora"].encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
+        
         return response
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -445,20 +449,22 @@ class GenerateMessage(Resource):
 class GeneratePrompt(Resource):
   def post (self, prompt = None, mode = 1, gen_photo = 1, video_len = 5):
     try:
-        mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), None, prompt, request.files["image"].read() if "image" in request.files else None, request.files["video"].read() if "video" in request.files else None)
+        start = time.time()
+        photo_init = request.files["image"].read() if "image" in request.files else None
+        video_init = request.files["video"].read() if "video" in request.files else None
+        mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), None, prompt, photo_init, video_init)
         if mp4 is None:
             return make_response('Error generating video', 500)
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
+        end = time.time()
         
         response = send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+        response.headers['X-FramePack-Has-Image-Input'] = ("True" if photo_init is not None else "False").encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Has-Video-Input'] = ("True" if video_init is not None else "False").encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Seed'] = str(config["seed"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Model'] = config["model"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Lora'] = config["lora"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Lora-Weight'] = config["lora_weight"].encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Seconds'] = (str(config["requested_seconds"])).encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Has-Image-Input'] = ("True" if photo_init is not None else False).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Has-Video-Input'] = ("True" if video_init is not None else False).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Window-Size'] = (str(config["window_size"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Steps'] = (str(config["steps"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-DistilledCfgScale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
@@ -468,13 +474,10 @@ class GeneratePrompt(Resource):
         response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn'] = str(hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-HunyuanVideo_dashtoon_keyframe_lora_converted_comfy_bf16'] = str(HunyuanVideo_dashtoon_keyframe_lora_converted_comfy_bf16_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-hyvid_I2V_lora_hair_growth'] = str(hyvid_I2V_lora_hair_growth_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-hyvideo_FastVideo_LoRA-fp8'] = str(hyvideo_FastVideo_LoRA_fp8_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-hyvid_I2V_lora_embrace'] = str(hyvid_I2V_lora_embrace_weight).encode('utf-8').decode('latin-1') 
-        #response.headers['X-FramePack-HunyuanVideo_dashtoon_keyframe_lora_converted_bf16'] = str(HunyuanVideo_dashtoon_keyframe_lora_converted_bf16_weight).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Prompt'] = prompt.encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Lora'] = config["lora"].encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Prompt'] = config["prompt"].encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
         return response
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()

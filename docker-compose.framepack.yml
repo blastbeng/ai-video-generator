@@ -1,41 +1,41 @@
 services:
-  #aivg:
-  #  pull_policy: build
-  #  build:
-  #    dockerfile: Dockerfile.aivg
-  #  container_name: aivg
-  #  environment:
-  #    - PUID=1000
-  #    - PGID=1000
-  #    - TZ=Europe/Rome
-  #  ports:
-  #    - "5661:5661"
-  #  depends_on:
-  #    aivg-fp-studio:
-  #      condition: service_healthy
-  #    aivg-fooocus-api:
-  #      condition: service_healthy
-  #    aivg-mmaudio-api:
-  #      condition: service_healthy
-  #    aivg-ollama:
-  #      condition: service_healthy
-  #    aivg-anythingllm:
-  #      condition: service_healthy
-  #  volumes:
-  #    - ".env:/app/.env"
-  #    - "./outputs:/app/outputs"
-  #    - "./aivg/configs:/app/configs"
-  #  image: "blastbeng/aivg:1.0.0"
-  #  restart: unless-stopped
-  #  healthcheck:
-  #    test: ["CMD", "curl", "-f", "http://127.0.0.1:5661"]
-  #    interval: 60s
-  #    timeout: 5s
-  #    retries: 3
-  #    start_period: 45s
-  #  networks:
-  #    - aivg_network
-  #  entrypoint: ["./entrypoint-framepack.sh"]
+  aivg:
+    pull_policy: build
+    build:
+      dockerfile: Dockerfile.aivg
+    container_name: aivg
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=Europe/Rome
+    ports:
+      - "5661:5661"
+    depends_on:
+      aivg-fp-studio:
+        condition: service_healthy
+      aivg-fooocus-api:
+        condition: service_healthy
+      aivg-mmaudio-api:
+        condition: service_healthy
+      aivg-ollama:
+        condition: service_healthy
+      aivg-anythingllm:
+        condition: service_healthy
+    volumes:
+      - ".env:/app/.env"
+      - "./outputs:/app/outputs"
+      - "./aivg/configs:/app/configs"
+    image: "blastbeng/aivg:1.0.0"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:5661"]
+      interval: 60s
+      timeout: 5s
+      retries: 3
+      start_period: 45s
+    networks:
+      - aivg_network
+    entrypoint: ["./entrypoint-framepack.sh"]
   aivg-fp-studio:
     build:
       args:

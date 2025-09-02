@@ -61,22 +61,25 @@ def create_db_tables(self):
     raise(e)
 
 def insert_wrong_config(self, config):
+  generated_id = None
   try:
     stmt = insert(self.params).values(skipped=0).values(has_input_image=config['has_input_image']).values(has_input_video=config['has_input_video']).values(requested_seconds=config['requested_seconds']).values(model=config['model']).values(seed=config['seed']).values(window_size=config['window_size']).values(steps=config['steps']).values(cache_type=config['cache_type']).values(tea_cache_steps=config['tea_cache_steps']).values(tea_cache_rel_l1_thresh=config['tea_cache_rel_l1_thresh']).values(mag_cache_threshold=config['mag_cache_threshold']).values(mag_cache_max_consecutive_skips=config['mag_cache_max_consecutive_skips']).values(mag_cache_retention_ratio=config['mag_cache_retention_ratio']).values(distilled_cfg_scale=config['distilled_cfg_scale']).values(cfg_scale=config['cfg_scale']).values(cfg_rescale=config['cfg_rescale']).values(lora=config['lora']).values(lora_weight=config['lora_weight']).prefix_with('OR IGNORE')
     compiled = stmt.compile()
     with self.db_engine.connect() as conn:
       result = conn.execute(stmt)
       conn.commit()
+      generated_id = result.lastrowid
   except Exception as e:
     exc_type, exc_obj, exc_tb = sys.exc_info()
     fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
     logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
     raise(e)
+  return generated_id
 
 def select_config(self, config):
   try:
     value = None
-    stmt = select(self.params.c.id).where(self.params.c.skipped == 2,self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.requested_seconds==config['requested_seconds'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==config['lora'],self.params.c.lora_weight==config['lora_weight'])
+    stmt = select(self.params.c.id,self.params.c.skipped).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.requested_seconds==config['requested_seconds'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==config['lora'],self.params.c.lora_weight==config['lora_weight'])
     
     compiled = stmt.compile()
     with self.db_engine.connect() as conn:
@@ -94,25 +97,10 @@ def select_config(self, config):
   finally:
     return value
 
-def update_ok_config(self, config):
+def update_config(self, generation_id, skipped_value):
   try:
     value = []
-    stmt = update(self.params).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.requested_seconds==config['requested_seconds'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==config['lora'],self.params.c.lora_weight==config['lora_weight']).values(skipped=1)
-           
-    compiled = stmt.compile()
-    with self.db_engine.connect() as conn:
-      result = conn.execute(stmt)
-      conn.commit()
-  except Exception as e:
-    exc_type, exc_obj, exc_tb = sys.exc_info()
-    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
-    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
-    raise(e)
-
-def update_skipped_config(self, config):
-  try:
-    value = []
-    stmt = update(self.params).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.requested_seconds==config['requested_seconds'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==config['lora'],self.params.c.lora_weight==config['lora_weight']).values(skipped=2)
+    stmt = update(self.params).where(self.params.c.id==generation_id).values(skipped=skipped_value)
            
     compiled = stmt.compile()
     with self.db_engine.connect() as conn:
