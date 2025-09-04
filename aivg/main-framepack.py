@@ -236,7 +236,7 @@ def get_config(mode, photo_init, video_init, requested_seconds):
     config["distilled_cfg_scale"] = round(random.uniform(0.9, 32.1), 1)
     config["cfg_scale"] = round(random.uniform(0.9, 3.1), 1)
     config["cfg_rescale"] = round(random.uniform(-0.01, 1.01), 2)
-    config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1)) and config["lora"] != "") else [] #["hyvideo_FastVideo_LoRA-fp8"]
+    config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1))) else [] #["hyvideo_FastVideo_LoRA-fp8"]
     config["lora_weight"] = round(random.uniform(-0.01, 2.01), 2)
     config["prompt"] = ""
     config["skipped"] = None
