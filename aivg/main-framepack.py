@@ -11,6 +11,7 @@ import urllib
 import time
 import re
 import subprocess
+import glob
 import queue
 import database
 import multiprocessing
@@ -24,6 +25,7 @@ from flask import send_file
 from flask import Response
 from flask import make_response
 from flask import request
+from flask import jsonify
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from flask_restx import Api
@@ -51,6 +53,9 @@ log.setLevel(int(os.environ.get("LOG_LEVEL")))
 
 dbms = database.Database(database.SQLITE, dbname='configs.sqlite3')
 
+
+class Config:    
+    SECRET_KEY = os.environ.get("SECRET_KEY")
 
 class ThreadPoolExecutorWithQueueSizeLimit(futures.ThreadPoolExecutor):
     def __init__(self, maxsize=10, *args, **kwargs):
@@ -110,13 +115,13 @@ def save_file(image, extension, file_path=os.environ.get("OUTPUT_PATH")):
         full_path_f.write(image)
     return full_path
 
-def add_audio_to_video(file_path, video_len):
+def add_audio_to_video(file_path, config):
     url = os.environ.get("MMAUDIO_ENDPOINT") + "/process"
     payload = {
-        #'prompt': prompt, 
+        'prompt': config["prompt"], 
         'negative_prompt': "", 
         'variant': "large_44k_v2", 
-        'duration': str(video_len)
+        'duration': str(config["requested_seconds"])
     }
     with  open(file_path,'rb') as file:
         response = requests.post(url, data=payload, files={'video': file})
@@ -143,7 +148,7 @@ def add_new_generation_framepack(video_len, mode, gen_photo, message, prompt, im
             else:
                 break
 
-        if config["skipped"] is None or config["skipped"] == 0 or config["skipped"] == 2:
+        if config["skipped"] is None or config["skipped"] == 0 or config["skipped"] == 1:
             
             if config["skipped"] is None:
                 logging.warn("Saving params to database")
@@ -180,10 +185,12 @@ def add_new_generation_framepack(video_len, mode, gen_photo, message, prompt, im
                         if (anything_llm_response_prompt_img.status_code == 200):
                             prompt_image = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
                         else:
+                            database.delete_wrong_entries(dbms)
                             raise Exception("Error getting response from AnythingLLM")
                     else:
                         prompt_image = prompt
                 else:
+                    database.delete_wrong_entries(dbms)
                     raise Exception("Error getting response from AnythingLLM")
             else:
                 prompt_image = prompt
@@ -205,9 +212,7 @@ def add_new_generation_framepack(video_len, mode, gen_photo, message, prompt, im
         else:
             logging.error("I haven't found any working config")
     else:
-        database.delete_wrong_entries(dbms)
         return False, None
-    database.delete_wrong_entries(dbms)
     return None, None
 
 def get_config(mode, photo_init, video_init, requested_seconds):
@@ -231,7 +236,7 @@ def get_config(mode, photo_init, video_init, requested_seconds):
     config["distilled_cfg_scale"] = round(random.uniform(0.9, 32.1), 1)
     config["cfg_scale"] = round(random.uniform(0.9, 3.1), 1)
     config["cfg_rescale"] = round(random.uniform(-0.01, 1.01), 2)
-    config["lora"] = "hyvideo_FastVideo_LoRA-fp8"
+    config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] #["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1)) and config["lora"] != "") else []
     config["lora_weight"] = round(random.uniform(-0.01, 2.01), 2)
     config["prompt"] = ""
     config["skipped"] = None
@@ -263,7 +268,7 @@ def start_video_gen(client, config, photo_init, video_init):
         param_21=4,
         param_22="Noise",
         param_23=True,
-        param_24=[config["lora"]] if (bool(random.getrandbits(1)) and config["lora"] != "") else [],
+        param_24=config["lora"],
         param_25=512, #param_25=512,
         param_26=768, #param_26=768,
         param_27=True,
@@ -288,25 +293,24 @@ def get_video(mode, photo_init, video_init, config):
     gen_result = start_video_gen(client, config, photo_init, video_init)
     if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
         job_id = gen_result[1]
-        future = executor.submit(monitor_job, client, job_id)
+        monitor_future = executor.submit(monitor_job, client, job_id)
         monitor_result = None
         try:
-            monitor_result = future.result(timeout=10800)
-            future.cancel()
+            c_timeout = (config["requested_seconds"]*400)
+            logging.warn("Using timeout: %s", str(c_timeout))
+            monitor_result = monitor_future.result(timeout=c_timeout)
+            monitor_future.cancel()
         except (concurrent.futures.TimeoutError, concurrent.futures._base.CancelledError) as e:
             logging.error("Max Execution Time reached")
             logging.error("Stopping current generation")
-            
-            result_current = client.predict(
-            	api_name="/check_for_current_job"
-            )
+            result_stop = client.predict(api_name="/end_process_with_update")
             while True:
+                result_current = client.predict(api_name="/check_for_current_job")
                 if result_current is None or len(result_current) == 0 or (len(result_current) > 0 and (result_current[0] is None or result_current[0] == "")):
                     break
                 else:
-                    time.sleep(10)
+                    time.sleep(60)
                     result_stop = client.predict(api_name="/end_process_with_update")
-                    result_current = client.predict(api_name="/check_for_current_job")
             logging.error("Updating skipped param to 2 to database for id: " + str(config["generation_id"]))
             database.update_config(dbms, config["generation_id"], 2)
             raise(concurrent.futures.TimeoutError)
@@ -328,10 +332,10 @@ def get_video(mode, photo_init, video_init, config):
                 if len(result_upscale) > 0 and 'video' in result_upscale[0]:
                     logging.warn("Upscaling ok")
                     file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
-                    mp4 = add_audio_to_video(file_upscaled, config["requested_seconds"])
+                    mp4 = add_audio_to_video(file_upscaled, config)
                     if mp4 is not None:
                         logging.warn("Adding audio ok")
-                        if config["skipped"] == 0:
+                        if config["skipped"] is not None:
                             logging.warn("Updating skipped param to 1 to database for config: " + str(config))
                             database.update_config(dbms, config["generation_id"], 1)
                         logging.warn("Process complete")
@@ -384,11 +388,12 @@ def create_app():
         remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
         database.create_db_tables(dbms)
         database.delete_wrong_entries(dbms)
+        app.config.from_object(Config())
+        app.secret_key = os.environ.get("SECRET_KEY")
         return app
 
 app = create_app()
-class Config:    
-    SCHEDULER_API_ENABLED = True
+
 
 scheduler = APScheduler()
 
@@ -398,7 +403,7 @@ limiter = Limiter(
     storage_uri="memory://",
 )
 
-app.config.from_object(Config())
+
 api = Api(app)
 
 nsaivg = api.namespace('aivg', 'AI Video Generator')
@@ -417,12 +422,14 @@ class Healthcheck(Resource):
 @nsaivg.route('/generate/enhance/<int:mode>/<int:gen_photo>/<int:video_len>/<string:message>/')
 class GenerateMessage(Resource):
   def post (self, mode = 1, gen_photo = 1, video_len = 5, message = None):
+    final_response = None
     try:
         start = time.time()
         photo_init = request.files["image"].read() if "image" in request.files else None
         video_init = request.files["video"].read() if "video" in request.files else None
         mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), message, None, photo_init, video_init)
         if mp4 is None:
+            
             return make_response('Error generating video', 500)
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
@@ -439,23 +446,39 @@ class GenerateMessage(Resource):
         response.headers['X-FramePack-DistilledCfgScale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-CfgScale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-CfgReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Cache-Tye'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Cache-Type'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
+        if str(config["cache_type"]) == "MagCache":
+            response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
+            response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
+            response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
+        elif  str(config["cache_type"]) == "TeaCache":
+            response.headers['X-FramePack-TeaCache_Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
+            response.headers['X-FramePack-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Prompt'] = config["prompt"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Lora'] = config["lora"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
+        if config["lora"] is not None and len(config["lora"]) > 0:
+            response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
+            response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Generation-Id'] = str(config["generation_id"]).encode('utf-8').decode('latin-1')
         
         return response
-    except concurrent.futures.TimeoutError:
-      return make_response('Video generation took to long', 504)
+    except concurrent.futures.TimeoutError as te:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      
+      return make_response('Video generation took to long', 408)
+    except concurrent.futures._base.CancelledError as ce:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      
+      return make_response('Video generation has been cancelled', 410)
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
       logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      
       return make_response('Error generating video', 500)
 
 @limiter.limit("1/second")
@@ -465,15 +488,18 @@ class GenerateMessage(Resource):
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:gen_photo>/<int:video_len>/')
 class GeneratePrompt(Resource):
   def post (self, prompt = None, mode = 1, gen_photo = 1, video_len = 5):
+    final_response = None
     try:
         start = time.time()
         photo_init = request.files["image"].read() if "image" in request.files else None
         video_init = request.files["video"].read() if "video" in request.files else None
         mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), (True if gen_photo == 1 else False), None, prompt, photo_init, video_init)
         if mp4 is None:
+            
             return make_response('Error generating video', 500)
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
+
         end = time.time()
         
         response = send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
@@ -487,22 +513,39 @@ class GeneratePrompt(Resource):
         response.headers['X-FramePack-DistilledCfgScale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-CfgScale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-CfgReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Cache-Tye'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Lora'] = config["lora"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Cache-Type'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
+        if str(config["cache_type"]) == "MagCache":
+            response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
+            response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
+            response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
+        elif  str(config["cache_type"]) == "TeaCache":
+            c
+            response.headers['X-FramePack-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
+        if config["lora"] is not None and len(config["lora"]) > 0:
+            response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
+            response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Prompt'] = config["prompt"].encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Generation-Id'] = str(config["generation_id"]).encode('utf-8').decode('latin-1')
+        
         return response
-    except concurrent.futures.TimeoutError:
-      return make_response('Video generation took to long', 504)
+    except concurrent.futures.TimeoutError as te:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      
+      return make_response('Video generation took to long', 408)
+    except concurrent.futures._base.CancelledError as ce:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      
+      return make_response('Video generation has been cancelled', 410)
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
       logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      
       return make_response('Error generating video', 500)
 
 @limiter.limit("1/second")
@@ -528,29 +571,77 @@ class GenerateImage(Resource):
       return make_response('Error generating image', 500)
 
 @limiter.limit("1/second")
-@nsaivg.route('/generate/skip/<int:generation_id>/')
-class GenerateImage(Resource):
-  def post (self, generation_id = None):
+@nsaivg.route('/generate/skipped/<int:skipped>/<int:generation_id>/')
+class GenerateSkipped(Resource):
+  def post (self, skipped = None, generation_id = None):
     try:
-        database.update_config(dbms, generation_id, 2)
+        database.update_config(dbms, generation_id, skipped)
         return make_response('Done', 200)        
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
       logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
-      return make_response('Error generating image', 500)
+      return c
 
 @limiter.limit("1/second")
-@nsaivg.route('/generate/stop/')
-class GeneratePrompt(Resource):
+@nsaivg.route('/stop/')
+class Stop(Resource):
   def get (self):
     try:
         client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
-        result = client.predict(
-                api_name="/end_process_with_update"
-        )
-        logging.info("%s", str(result))
-        return make_response('Stopping current generation...', 200)
+        result_stop = client.predict(api_name="/end_process_with_update")
+        while True:
+            result_current = client.predict(api_name="/check_for_current_job")
+            if result_current is None or len(result_current) == 0 or (len(result_current) > 0 and (result_current[0] is None or result_current[0] == "")):
+                database.delete_wrong_entries(dbms)
+                os.system("pkill -f uwsgi -9")
+            else:
+                time.sleep(1)
+                result_stop = client.predict(api_name="/end_process_with_update")
+    except Exception as e:
+      exc_type, exc_obj, exc_tb = sys.exc_info()
+      fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+      logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+      return make_response('Error', 500)
+
+@limiter.limit("1/second")
+@nsaivg.route('/generate/check/job/')
+class GenerateCheck(Resource):
+  def post (self):
+    try:
+        client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
+        data = client.predict(api_name="/check_for_current_job")        
+        text_ret = ""
+        generation_id = database.select_config_by_skipped(dbms, 0)
+        if generation_id is not None and data is not None and len(data) == 6:
+            if data[4] != '':
+                text_ret = text_ret + data[4] + "\n"
+            if data[5] != '':
+                splitted_data_5 = data[5].split("\n")
+                for datah in splitted_data_5:
+                    if "span" in datah:
+                        to_add = datah.strip().replace("<span>","").replace("</span>","")
+                        text_ret = text_ret + to_add + "&nbsp;"
+            if text_ret != "":
+                if len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.mp4')]) and len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.json')])> 0:
+                    list_of_mp4 = glob.glob(os.environ.get("OUTPUT_PATH")+'*.mp4')
+                    latest_mp4 = max(list_of_mp4, key=os.path.getctime)
+                    latest_mp4_name = "_".join((Path(latest_mp4).stem).split("_")[:-1])
+                    list_of_json = glob.glob(os.environ.get("OUTPUT_PATH")+'*.json')
+                    latest_json = max(list_of_json, key=os.path.getctime)
+                    latest_json_name = Path(latest_json).stem
+                    if latest_mp4_name == latest_json_name:
+                        response = send_file(latest_mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
+                        response.headers['X-FramePack-File-Name'] = str(os.path.basename(latest_mp4)).encode('utf-8').decode('latin-1')
+                    else: 
+                        response = make_response('Job is starting', 202)
+                        response.headers['X-FramePack-File-Name'] = str("").encode('utf-8').decode('latin-1')
+                else:
+                    response = make_response('Job is starting', 202)
+                response.headers['X-FramePack-Check-Current-Job'] = text_ret.replace("\n","&nbsp;").encode('utf-8').decode('latin-1') 
+                response.headers['X-FramePack-Generation-Id'] = str(generation_id[0]).encode('utf-8').decode('latin-1')
+                return response
+        return make_response('No jobs running', 206)
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
