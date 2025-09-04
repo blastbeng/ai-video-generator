@@ -236,7 +236,7 @@ def get_config(mode, photo_init, video_init, requested_seconds):
     config["distilled_cfg_scale"] = round(random.uniform(0.9, 32.1), 1)
     config["cfg_scale"] = round(random.uniform(0.9, 3.1), 1)
     config["cfg_rescale"] = round(random.uniform(-0.01, 1.01), 2)
-    config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] #["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1)) and config["lora"] != "") else []
+    config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1)) and config["lora"] != "") else [] #["hyvideo_FastVideo_LoRA-fp8"]
     config["lora_weight"] = round(random.uniform(-0.01, 2.01), 2)
     config["prompt"] = ""
     config["skipped"] = None
@@ -297,6 +297,9 @@ def get_video(mode, photo_init, video_init, config):
         monitor_result = None
         try:
             c_timeout = (config["requested_seconds"]*400)
+            if len(config["lora"]) != 0:
+                logging.warn("Lora detected, adding some timeout to allow Lora loading")
+                c_timeout = c_timeout + 400
             logging.warn("Using timeout: %s", str(c_timeout))
             monitor_result = monitor_future.result(timeout=c_timeout)
             monitor_future.cancel()
