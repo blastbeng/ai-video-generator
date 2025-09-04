@@ -448,16 +448,16 @@ class GenerateMessage(Resource):
         response.headers['X-FramePack-Seconds'] = (str(config["requested_seconds"])).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Window-Size'] = (str(config["window_size"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Steps'] = (str(config["steps"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-DistilledCfgScale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-CfgScale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-CfgReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Distilled-CfgS-cale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Cfg-Scale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Cfg-ReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Cache-Type'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
         if str(config["cache_type"]) == "MagCache":
             response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
             response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
             response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
         elif  str(config["cache_type"]) == "TeaCache":
-            response.headers['X-FramePack-TeaCache_Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
+            response.headers['X-FramePack-TeaCache-Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
             response.headers['X-FramePack-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Prompt'] = config["prompt"].encode('utf-8').decode('latin-1')
         if config["lora"] is not None and len(config["lora"]) > 0:
@@ -515,16 +515,16 @@ class GeneratePrompt(Resource):
         response.headers['X-FramePack-Seconds'] = (str(config["requested_seconds"])).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Window-Size'] = (str(config["window_size"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Steps'] = (str(config["steps"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-DistilledCfgScale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-CfgScale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-CfgReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Distilled-Cfg-Scale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Cfg-Scale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Cfg-ReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
         response.headers['X-FramePack-Cache-Type'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
         if str(config["cache_type"]) == "MagCache":
             response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
             response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
             response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
         elif  str(config["cache_type"]) == "TeaCache":
-            c
+            response.headers['X-FramePack-TeaCache-Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
             response.headers['X-FramePack-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
         if config["lora"] is not None and len(config["lora"]) > 0:
             response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
