@@ -229,15 +229,15 @@ def get_config(mode, photo_init, video_init, requested_seconds):
     config["steps"] = random.randint(10, 50)
     config["cache_type"] = random.choice(["None","MagCache","TeaCache"])
     config["tea_cache_steps"] = random.randint(1, 50)
-    config["tea_cache_rel_l1_thresh"] = round(random.uniform(0, 1.01), 2)
-    config["mag_cache_threshold"] = round(random.uniform(0, 1), 2)
+    config["tea_cache_rel_l1_thresh"] = round(random.uniform(0.01, 1), 2)
+    config["mag_cache_threshold"] = round(random.uniform(0.01, 1), 2)
     config["mag_cache_max_consecutive_skips"] = random.randint(1, 5)
-    config["mag_cache_retention_ratio"] = round(random.uniform(-0.01, 1), 2)
-    config["distilled_cfg_scale"] = round(random.uniform(0.9, 32.1), 1)
-    config["cfg_scale"] = round(random.uniform(0.9, 3.1), 1)
-    config["cfg_rescale"] = round(random.uniform(-0.01, 1.01), 2)
+    config["mag_cache_retention_ratio"] = round(random.uniform(0, 1), 2)
+    config["distilled_cfg_scale"] = round(random.uniform(1.0, 32), 1)
+    config["cfg_scale"] = round(random.uniform(1, 3), 1)
+    config["cfg_rescale"] = round(random.uniform(0, 1), 2)
     config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1))) else [] #["hyvideo_FastVideo_LoRA-fp8"]
-    config["lora_weight"] = round(random.uniform(-0.01, 2.01), 2)
+    config["lora_weight"] = round(random.uniform(0, 2), 2)
     config["prompt"] = ""
     config["skipped"] = None
     return config
@@ -295,28 +295,35 @@ def get_video(mode, photo_init, video_init, config):
         job_id = gen_result[1]
         monitor_future = executor.submit(monitor_job, client, job_id)
         monitor_result = None
+        
         try:
-            c_timeout = (config["requested_seconds"]*400)
-            if len(config["lora"]) != 0:
-                logging.warn("Lora detected, adding some timeout to allow Lora loading")
-                c_timeout = c_timeout + 400
-            logging.warn("Using timeout: %s", str(c_timeout))
-            monitor_result = monitor_future.result(timeout=c_timeout)
-            monitor_future.cancel()
+            if config["skipped"] != "1":
+                c_timeout = (config["requested_seconds"]*400)
+                if len(config["lora"]) != 0:
+                    logging.warn("Lora detected, adding some timeout to allow Lora loading")
+                    c_timeout = c_timeout + 400
+                logging.warn("Using timeout: %s", str(c_timeout))
+                monitor_result = monitor_future.result(timeout=c_timeout)
+                monitor_future.cancel()
+            else:
+                monitor_result = monitor_future.result()
+                monitor_future.cancel()
+
         except (concurrent.futures.TimeoutError, concurrent.futures._base.CancelledError) as e:
-            logging.error("Max Execution Time reached")
-            logging.error("Stopping current generation")
-            result_stop = client.predict(api_name="/end_process_with_update")
-            while True:
-                result_current = client.predict(api_name="/check_for_current_job")
-                if result_current is None or len(result_current) == 0 or (len(result_current) > 0 and (result_current[0] is None or result_current[0] == "")):
-                    break
-                else:
-                    time.sleep(60)
-                    result_stop = client.predict(api_name="/end_process_with_update")
-            logging.error("Updating skipped param to 2 to database for id: " + str(config["generation_id"]))
-            database.update_config(dbms, config["generation_id"], 2)
-            raise(concurrent.futures.TimeoutError)
+            if config["skipped"] != "1":
+                logging.error("Max Execution Time reached")
+                logging.error("Stopping current generation")
+                result_stop = client.predict(api_name="/end_process_with_update")
+                while True:
+                    result_current = client.predict(api_name="/check_for_current_job")
+                    if result_current is None or len(result_current) == 0 or (len(result_current) > 0 and (result_current[0] is None or result_current[0] == "")):
+                        break
+                    else:
+                        time.sleep(60)
+                        result_stop = client.predict(api_name="/end_process_with_update")
+                logging.error("Updating skipped param to 2 to database for id: " + str(config["generation_id"]))
+                database.update_config(dbms, config["generation_id"], 2)
+            raise(e)
         
         if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
             generated_video = (os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video']))
@@ -338,7 +345,7 @@ def get_video(mode, photo_init, video_init, config):
                     mp4 = add_audio_to_video(file_upscaled, config)
                     if mp4 is not None:
                         logging.warn("Adding audio ok")
-                        if config["skipped"] is not None:
+                        if config["skipped"] is not None and config["skipped"] != "1":
                             logging.warn("Updating skipped param to 1 to database for config: " + str(config))
                             database.update_config(dbms, config["generation_id"], 1)
                         logging.warn("Process complete")
