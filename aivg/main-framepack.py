@@ -154,6 +154,9 @@ def add_new_generation_framepack(video_len, mode, gen_photo, message, prompt, im
                 logging.warn("Saving params to database")
                 config["generation_id"] = database.insert_wrong_config(dbms, config)
                 config["skipped"] = 0
+            elif config["skipped"] is not None and config["skipped"] == "1":
+                database.update_config(dbms, config["generation_id"], 0)
+                config["skipped"] = 0
         
             prompt_image = None
             if prompt is None:
@@ -297,32 +300,26 @@ def get_video(mode, photo_init, video_init, config):
         monitor_result = None
         
         try:
-            if config["skipped"] != "1":
-                c_timeout = (config["requested_seconds"]*400)
-                if len(config["lora"]) != 0:
-                    logging.warn("Lora detected, adding some timeout to allow Lora loading")
-                    c_timeout = c_timeout + 400
-                logging.warn("Using timeout: %s", str(c_timeout))
-                monitor_result = monitor_future.result(timeout=c_timeout)
-                monitor_future.cancel()
-            else:
-                monitor_result = monitor_future.result()
-                monitor_future.cancel()
-
+            c_timeout = (config["requested_seconds"]*400)
+            if len(config["lora"]) != 0:
+                logging.warn("Lora detected, adding some timeout to allow Lora loading")
+                c_timeout = c_timeout + 400
+            logging.warn("Using timeout: %s", str(c_timeout))
+            monitor_result = monitor_future.result(timeout=c_timeout)
+            monitor_future.cancel()
         except (concurrent.futures.TimeoutError, concurrent.futures._base.CancelledError) as e:
-            if config["skipped"] != "1":
-                logging.error("Max Execution Time reached")
-                logging.error("Stopping current generation")
-                result_stop = client.predict(api_name="/end_process_with_update")
-                while True:
-                    result_current = client.predict(api_name="/check_for_current_job")
-                    if result_current is None or len(result_current) == 0 or (len(result_current) > 0 and (result_current[0] is None or result_current[0] == "")):
-                        break
-                    else:
-                        time.sleep(60)
-                        result_stop = client.predict(api_name="/end_process_with_update")
-                logging.error("Updating skipped param to 2 to database for id: " + str(config["generation_id"]))
-                database.update_config(dbms, config["generation_id"], 2)
+            logging.error("Max Execution Time reached")
+            logging.error("Stopping current generation")
+            result_stop = client.predict(api_name="/end_process_with_update")
+            while True:
+                result_current = client.predict(api_name="/check_for_current_job")
+                if result_current is None or len(result_current) == 0 or (len(result_current) > 0 and (result_current[0] is None or result_current[0] == "")):
+                    break
+                else:
+                    time.sleep(60)
+                    result_stop = client.predict(api_name="/end_process_with_update")
+            logging.error("Updating skipped param to 2 to database for id: " + str(config["generation_id"]))
+            database.update_config(dbms, config["generation_id"], 2)
             raise(e)
         
         if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
@@ -345,9 +342,7 @@ def get_video(mode, photo_init, video_init, config):
                     mp4 = add_audio_to_video(file_upscaled, config)
                     if mp4 is not None:
                         logging.warn("Adding audio ok")
-                        if config["skipped"] is not None and config["skipped"] != "1":
-                            logging.warn("Updating skipped param to 1 to database for config: " + str(config))
-                            database.update_config(dbms, config["generation_id"], 1)
+                        database.update_config(dbms, config["generation_id"], 1)
                         logging.warn("Process complete")
                         return mp4, config
     database.delete_wrong_entries(dbms)
