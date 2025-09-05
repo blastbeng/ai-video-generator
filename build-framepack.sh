@@ -49,6 +49,9 @@ fi
 
 cd $SCRIPT_DIR
 
+wget -nc -q -O "$SCRIPT_DIR/framepack-studio/loras/hyvideo_FastVideo_LoRA-fp8.safetensors" "https://huggingface.co/Kijai/HunyuanVideo_comfy/resolve/main/hyvideo_FastVideo_LoRA-fp8.safetensors"
+#wget -nc -q -O "$SCRIPT_DIR/framepack-studio/loras/hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn.safetensors" "https://huggingface.co/Kijai/HunyuanVideo_comfy/resolve/main/hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn.safetensors"
+
 docker compose -f docker-compose.framepack.yml build
 
 
