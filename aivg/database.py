@@ -48,6 +48,7 @@ class Database:
                 Column('lora', String, nullable=True),
                 Column('lora_weight', Float, nullable=True),
                 Column('gen_photo', Integer, nullable=False),
+                Column('exec_time_seconds', Integer, nullable=True),
                 Column('tms_insert', DateTime(timezone=True), server_default=func.now()),
                 Column('tms_update', DateTime(timezone=True), onupdate=func.now())
                 )
@@ -65,7 +66,7 @@ def insert_wrong_config(self, config):
   generated_id = None
   try:
     loras_string = (', '.join(config['lora']) if config["lora"] is not None and len(config["lora"]) > 0 else None)
-    stmt = insert(self.params).values(skipped=0).values(has_input_image=config['has_input_image']).values(has_input_video=config['has_input_video']).values(requested_seconds=config['requested_seconds']).values(model=config['model']).values(seed=config['seed']).values(window_size=config['window_size']).values(steps=config['steps']).values(cache_type=config['cache_type']).values(tea_cache_steps=config['tea_cache_steps']).values(tea_cache_rel_l1_thresh=config['tea_cache_rel_l1_thresh']).values(mag_cache_threshold=config['mag_cache_threshold']).values(mag_cache_max_consecutive_skips=config['mag_cache_max_consecutive_skips']).values(mag_cache_retention_ratio=config['mag_cache_retention_ratio']).values(distilled_cfg_scale=config['distilled_cfg_scale']).values(cfg_scale=config['cfg_scale']).values(cfg_rescale=config['cfg_rescale']).values(lora=loras_string).values(lora_weight=config['lora_weight']).values(gen_photo=config['gen_photo']).prefix_with('OR IGNORE')
+    stmt = insert(self.params).values(skipped=0).values(has_input_image=config['has_input_image']).values(has_input_video=config['has_input_video']).values(requested_seconds=config['requested_seconds']).values(model=config['model']).values(seed=config['seed']).values(window_size=config['window_size']).values(steps=config['steps']).values(cache_type=config['cache_type']).values(tea_cache_steps=config['tea_cache_steps']).values(tea_cache_rel_l1_thresh=config['tea_cache_rel_l1_thresh']).values(mag_cache_threshold=config['mag_cache_threshold']).values(mag_cache_max_consecutive_skips=config['mag_cache_max_consecutive_skips']).values(mag_cache_retention_ratio=config['mag_cache_retention_ratio']).values(distilled_cfg_scale=config['distilled_cfg_scale']).values(cfg_scale=config['cfg_scale']).values(cfg_rescale=config['cfg_rescale']).values(lora=loras_string).values(lora_weight=config['lora_weight']).values(gen_photo=config['gen_photo']).values(exec_time_seconds=config['exec_time_seconds']).prefix_with('OR IGNORE')
     compiled = stmt.compile()
     with self.db_engine.connect() as conn:
       result = conn.execute(stmt)
@@ -121,10 +122,14 @@ def select_config_by_skipped(self, skipped):
   finally:
     return value
 
-def update_config(self, generation_id, skipped_value):
+def update_config(self, config):
   try:
     value = []
-    stmt = update(self.params).where(self.params.c.id==generation_id).values(skipped=skipped_value)
+    stmt = update(self.params).where(self.params.c.id==config["generation_id"])
+    if "skipped" in config:
+      stmt = stmt.values(skipped=config["skipped"])
+    if "exec_time_seconds" in config:
+      stmt = stmt.values(exec_time_seconds=config["exec_time_seconds"])
            
     compiled = stmt.compile()
     with self.db_engine.connect() as conn:

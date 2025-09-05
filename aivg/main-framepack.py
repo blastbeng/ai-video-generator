@@ -180,8 +180,8 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
                 config["generation_id"] = database.insert_wrong_config(dbms, config)
                 config["skipped"] = 0
             elif config["skipped"] is not None and config["skipped"] == "1":
-                database.update_config(dbms, config["generation_id"], 0)
                 config["skipped"] = 0
+                database.update_config(dbms, config)
         
             prompt_image = None
             if prompt is None:
@@ -269,10 +269,11 @@ def get_config(mode, image, video, requested_seconds):
     #config["lora"] = ["hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn"]
     #config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1))) else [] #["hyvideo_FastVideo_LoRA-fp8"]
     config["lora"] = None
-    config["lora_weight"] = round(random.uniform(0, 2), 2) if config["lora"] is not None and len(config["lora"]) > 0 else None
+    config["lora_weight"] = round(random.uniform(0, 2), 2) if config["lora"] is not None and len(config["lora"]) > 0 else 0
     config["prompt"] = ""
     config["gen_photo"] = gen_photo
     config["skipped"] = None
+    config['exec_time_seconds'] = 0
     return config
 
 def start_video_gen(client, config, photo_init, video_init):
@@ -320,7 +321,7 @@ def monitor_job(client, job_id):
 
 
 def get_video(mode, photo_init, video_init, config):
-
+    start = time.time()
     client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
     logging.warn("Launching with params: %s", str(config))
     gen_result = start_video_gen(client, config, photo_init, video_init)
@@ -349,7 +350,10 @@ def get_video(mode, photo_init, video_init, config):
                     time.sleep(60)
                     result_stop = client.predict(api_name="/end_process_with_update")
             logging.error("Updating skipped param to 2 to database for id: " + str(config["generation_id"]))
-            database.update_config(dbms, config["generation_id"], 2)
+            end = time.time()
+            config["exec_time_seconds"] = int(end - start)
+            config["skipped"] = 2
+            database.update_config(dbms, config)
             raise(e)
         
         if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
@@ -372,7 +376,10 @@ def get_video(mode, photo_init, video_init, config):
                     mp4 = add_audio_to_video(file_upscaled, config)
                     if mp4 is not None:
                         logging.warn("Adding audio ok")
-                        database.update_config(dbms, config["generation_id"], 1)
+                        end = time.time()
+                        config["exec_time_seconds"] = int(end - start)
+                        config["skipped"] = 1
+                        database.update_config(dbms, config)
                         logging.warn("Process complete")
                         return mp4, config
     database.delete_wrong_entries(dbms)
@@ -459,7 +466,6 @@ class GenerateMessage(Resource):
   def post (self, mode = 1, video_len = 5, message = None):
     final_response = None
     try:
-        start = time.time()
         photo_init = request.files["image"].read() if "image" in request.files else None
         video_init = request.files["video"].read() if "video" in request.files else None
         mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), message, None, photo_init, video_init)
@@ -468,7 +474,6 @@ class GenerateMessage(Resource):
             return make_response('Error generating video', 500)
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
-        end = time.time()
         
         response = send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
         response.headers['X-FramePack-Image-Input'] = ("True" if photo_init is not None else "False").encode('utf-8').decode('latin-1') 
@@ -490,12 +495,12 @@ class GenerateMessage(Resource):
         elif  str(config["cache_type"]) == "TeaCache":
             response.headers['X-FramePack-TeaCache-Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
             response.headers['X-FramePack-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
         if config["lora"] is not None and len(config["lora"]) > 0:
             response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
             response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Generation-Id'] = str(config["generation_id"]).encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Generation-Id'] = str(config['exec_time_seconds']).encode('utf-8').decode('latin-1')
         
         return response
     except concurrent.futures.TimeoutError as te:
@@ -525,7 +530,6 @@ class GeneratePrompt(Resource):
   def post (self, prompt = None, mode = 1, video_len = 5):
     final_response = None
     try:
-        start = time.time()
         photo_init = request.files["image"].read() if "image" in request.files else None
         video_init = request.files["video"].read() if "video" in request.files else None
         mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), None, prompt, photo_init, video_init)
@@ -534,8 +538,6 @@ class GeneratePrompt(Resource):
             return make_response('Error generating video', 500)
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
-
-        end = time.time()
         
         response = send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
         response.headers['X-FramePack-Image-Input'] = ("True" if photo_init is not None else "False").encode('utf-8').decode('latin-1') 
@@ -562,7 +564,7 @@ class GeneratePrompt(Resource):
             response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Generation-Id'] = str(config["generation_id"]).encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Generation-Id'] = str(config['exec_time_seconds']).encode('utf-8').decode('latin-1')
         
         return response
     except concurrent.futures.TimeoutError as te:
@@ -628,7 +630,10 @@ class GenerateImage(Resource):
 class GenerateSkipped(Resource):
   def post (self, skipped = None, generation_id = None):
     try:
-        database.update_config(dbms, generation_id, skipped)
+        config = {}
+        config["generation_id"] = generation_id
+        config["skipped"] = skipped
+        database.update_config(dbms, config)
         return make_response('Done', 200)        
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
