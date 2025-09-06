@@ -89,7 +89,7 @@ def get_styles():
 
 def generate_image(prompt):
     result = text2img({
-        "prompt": prompt,
+        "prompt": prompt.replace("\n", " "),
         "negative_prompt": os.environ.get("NEGATIVE_PROMPT"),
         "performance_selection": "Quality",
         "aspect_ratios_selection": "704*1344",
@@ -162,7 +162,7 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
     time.sleep(5)
     if database.select_config_by_skipped(dbms, 0) is None:
 
-        for n in range(900):
+        for n in range(10000):
             config = get_config(mode, image, video, video_len)
             value = database.select_config(dbms, config)
             if value is not None:
@@ -183,11 +183,11 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
                 config["skipped"] = 0
                 database.update_config(dbms, config)
         
-            prompt_image = None
+            config["prompt_image"] = None
             if prompt is None:
                 #reset_workspace()
                 message = (str(random.choice(json.loads(os.environ.get('PROMPT_LIST'))) if message is None else message))
-                prompt_image = message
+                config["prompt_image"] = message
                 data = {
                     "message": message,
                     "mode": "chat"
@@ -212,17 +212,17 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
                                         data=data_prompt_img,
                                         headers=headers)
                         if (anything_llm_response_prompt_img.status_code == 200):
-                            prompt_image = remove_html_tags_and_content(anything_llm_response_prompt_img.json()["textResponse"].rstrip())
+                            config["prompt_image"] = remove_html_tags_and_content(anything_llm_response_prompt_img.json()["textResponse"].rstrip())
                         else:
                             database.delete_wrong_entries(dbms)
                             raise Exception("Error getting response from AnythingLLM")
                     else:
-                        prompt_image = prompt
+                        config["prompt_image"] = prompt
                 else:
                     database.delete_wrong_entries(dbms)
                     raise Exception("Error getting response from AnythingLLM")
             else:
-                prompt_image = prompt
+                config["prompt_image"] = prompt
             photo_init = None
             video_init = None
             if image is not None:
@@ -230,7 +230,7 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
             elif video is not None:
                 video_init = save_file(video, ".mp4")
             elif config["gen_photo"] == 1:
-                start_image = generate_image(prompt_image)
+                start_image = generate_image(config["prompt_image"])
                 photo_init = download_file(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1"), "png")
 
             config["prompt"] = prompt
@@ -257,12 +257,12 @@ def get_config(mode, image, video, requested_seconds):
     config["seed"] = random.randint(0, 9223372036854775807)
     config["window_size"] = random.randint(9, 15)
     config["steps"] = random.randint(10, 50)
-    config["cache_type"] = random.choice(["None","MagCache","TeaCache"])
-    config["tea_cache_steps"] = random.randint(1, 50)
-    config["tea_cache_rel_l1_thresh"] = round(random.uniform(0.01, 1), 2)
-    config["mag_cache_threshold"] = round(random.uniform(0.01, 1), 2)
-    config["mag_cache_max_consecutive_skips"] = random.randint(1, 5)
-    config["mag_cache_retention_ratio"] = round(random.uniform(0, 1), 2)
+    config["cache_type"] = random.choice(["MagCache","TeaCache"])
+    config["tea_cache_steps"] = random.randint(1, 50) if config["cache_type"] == "TeaCache" else None
+    config["tea_cache_rel_l1_thresh"] = round(random.uniform(0.01, 1), 2) if config["cache_type"] == "TeaCache" else None
+    config["mag_cache_threshold"] = round(random.uniform(0.01, 1), 2) if config["cache_type"] == "MagCache" else None
+    config["mag_cache_max_consecutive_skips"] = random.randint(1, 5) if config["cache_type"] == "MagCache" else None
+    config["mag_cache_retention_ratio"] = round(random.uniform(0, 1), 2) if config["cache_type"] == "MagCache" else None
     config["distilled_cfg_scale"] = round(random.uniform(1.0, 32), 1)
     config["cfg_scale"] = round(random.uniform(1, 3), 1)
     config["cfg_rescale"] = round(random.uniform(0, 1), 2)
@@ -283,7 +283,7 @@ def start_video_gen(client, config, photo_init, video_init):
         param_2=({"video":handle_file(video_init)}) if video_init is not None else None,
         param_3=None,
         param_4=1,
-        param_5=config["prompt"],
+        param_5=config["prompt"].replace("\n", " "),
         param_6=os.environ.get("NEGATIVE_PROMPT"),
         param_7=config["seed"],
         param_8=False,
@@ -331,7 +331,7 @@ def get_video(mode, photo_init, video_init, config):
         monitor_result = None
         
         try:
-            c_timeout = (config["requested_seconds"]*200)
+            c_timeout = (config["requested_seconds"]*200) + 300
             if config["lora"] is not None and len(config["lora"]) != 0:
                 logging.warn("Lora detected, adding some timeout to allow Lora loading")
                 c_timeout = c_timeout + 400
@@ -499,8 +499,10 @@ class GenerateMessage(Resource):
             response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
             response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Generation-Id'] = str(config['exec_time_seconds']).encode('utf-8').decode('latin-1')
+        if config["prompt_image"] is not None:
+            response.headers['X-FramePack-Prompt-Image'] = config["prompt_image"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Execution-Time'] = (str(config['exec_time_seconds']) + " seconds").encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Generation-Id'] = str(config['generation_id']).encode('utf-8').decode('latin-1')
         
         return response
     except concurrent.futures.TimeoutError as te:
@@ -563,8 +565,10 @@ class GeneratePrompt(Resource):
             response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
             response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Execution-Time'] = (str(int(end - start)) + " seconds").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Generation-Id'] = str(config['exec_time_seconds']).encode('utf-8').decode('latin-1')
+        if config["prompt_image"] is not None:
+            response.headers['X-FramePack-Prompt-Image'] = config["prompt_image"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Execution-Time'] = (str(config['exec_time_seconds']) + " seconds").encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Generation-Id'] = str(config['generation_id']).encode('utf-8').decode('latin-1')
         
         return response
     except concurrent.futures.TimeoutError as te:
@@ -681,7 +685,7 @@ class GenerateCheck(Resource):
                         to_add = datah.strip().replace("<span>","").replace("</span>","")
                         text_ret = text_ret + to_add + "&nbsp;"
             if text_ret != "":
-                if len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.mp4')]) and len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.json')])> 0:
+                if "starting" not in text_ret.lower() and "clip vision" not in text_ret.lower() and len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.mp4')]) and len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.json')])> 0:
                     list_of_mp4 = glob.glob(os.environ.get("OUTPUT_PATH")+'*.mp4')
                     latest_mp4 = max(list_of_mp4, key=os.path.getctime)
                     latest_mp4_name = "_".join((Path(latest_mp4).stem).split("_")[:-1])

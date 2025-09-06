@@ -48,3 +48,5 @@ Wan2GP/ckpts/
 wgp_config.json
 aivg/configs
 aivg/configs/
+sqlitebrowser_config
+sqlitebrowser_config/

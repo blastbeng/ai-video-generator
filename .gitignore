@@ -260,3 +260,6 @@ outputs/
 
 wgp_config.json
 aivg/configs/*
+
+sqlitebrowser_config
+sqlitebrowser_config/
