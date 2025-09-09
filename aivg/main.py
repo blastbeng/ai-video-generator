@@ -16,6 +16,7 @@ import queue
 import database
 import multiprocessing
 import concurrent
+import cv2
 
 from concurrent import futures
 from io import BytesIO
@@ -118,14 +119,20 @@ def save_file(image, extension, file_path=os.environ.get("OUTPUT_PATH")):
 
 def add_audio_to_video(file_path, config):
     url = os.environ.get("MMAUDIO_ENDPOINT") + "/process"
+    video = cv2.VideoCapture(file_path)
+    frames = video.get(cv2.CAP_PROP_FRAME_COUNT)
+    fps = video.get(cv2.CAP_PROP_FPS)
+    seconds = round(frames / fps)
     payload = {
         #'prompt': config["prompt"], 
-        'negative_prompt': "music", 
+        #'negative_prompt': "music", 
         'variant': "large_44k_v2", 
-        'duration': str(config["requested_seconds"]), 
+        'cfg_strenght': 10.0,
+        'num_steps': 40, 
+        #'duration': float(config["requested_seconds"]), 
+        'duration': float(seconds), 
         'seed': str(config["seed"]), 
-        'full_precision': True, 
-        'seed': str(config["seed"])
+        'full_precision': True
     }
     with  open(file_path,'rb') as file:
         response = requests.post(url, data=payload, files={'video': file})
@@ -159,7 +166,7 @@ def remove_html_tags_and_content(text):
 #        raise Exception("Error resetting AnythingLLM workspace")
 
 def add_new_generation_framepack(video_len, mode, message, prompt, image, video):
-    time.sleep(5)
+    time.sleep(2)
     if database.select_config_by_skipped(dbms, 0) is None:
 
         for n in range(10000):
@@ -168,6 +175,7 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
             if value is not None:
                 config["generation_id"] = value[0]
                 config["skipped"] =  value[1]
+                config["status"] =  value[2]
             if config["skipped"] is not None and config["skipped"] == 2:
                 logging.warn("Found skipped params: %s", str(config))
             else:
@@ -178,10 +186,9 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
             if config["skipped"] is None:
                 logging.warn("Saving params to database")
                 config["generation_id"] = database.insert_wrong_config(dbms, config)
-                config["skipped"] = 0
-            elif config["skipped"] is not None and config["skipped"] == "1":
-                config["skipped"] = 0
-                database.update_config(dbms, config)
+            config["skipped"] = 0
+            config["status"] = 0
+            database.update_config(dbms, config)
         
             config["prompt_image"] = None
             if prompt is None:
@@ -202,7 +209,8 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
                 
                 if (anything_llm_response.status_code == 200):
                     
-                    prompt = remove_html_tags_and_content(anything_llm_response.json()["textResponse"].rstrip())
+                    #prompt = remove_html_tags_and_content(anything_llm_response.json()["textResponse"].rstrip())
+                    prompt = anything_llm_response.json()["textResponse"].rstrip()
                     if config["gen_photo"] == 1:
                         data_prompt_img = {
                             "message": 'Extract one scene this story, be synthetic, answer with just one sentence: "' + (str(prompt)) + '"',
@@ -212,7 +220,8 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
                                         data=data_prompt_img,
                                         headers=headers)
                         if (anything_llm_response_prompt_img.status_code == 200):
-                            config["prompt_image"] = remove_html_tags_and_content(anything_llm_response_prompt_img.json()["textResponse"].rstrip())
+                            #config["prompt_image"] = remove_html_tags_and_content(anything_llm_response_prompt_img.json()["textResponse"].rstrip())
+                            config["prompt_image"] = anything_llm_response_prompt_img.json()["textResponse"].rstrip()
                         else:
                             database.delete_wrong_entries(dbms)
                             raise Exception("Error getting response from AnythingLLM")
@@ -244,9 +253,12 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
         return False, None
     return None, None
 
+def round_nearest(x, a):
+    return round(x / a) * a
+
 def get_config(mode, image, video, requested_seconds):
     config = {}
-    gen_photo = 1 #random.randint(0, 1)
+    gen_photo = random.randint(0, 1)
     model = "F1" if mode else "Original"
     if video is not None:
         model = "Video F1" if mode else "Video"
@@ -256,24 +268,28 @@ def get_config(mode, image, video, requested_seconds):
     config["requested_seconds"] = requested_seconds
     config["seed"] = random.randint(0, 9223372036854775807)
     config["window_size"] = random.randint(9, 15)
-    config["steps"] = random.randint(10, 50)
-    config["cache_type"] = random.choice(["MagCache","TeaCache"])
+    config["steps"] = random.randint(20, 40)
+    #config["cache_type"] = random.choice(["MagCache","TeaCache"])
+    config["cache_type"] = "MagCache"
     config["tea_cache_steps"] = random.randint(1, 50) if config["cache_type"] == "TeaCache" else None
-    config["tea_cache_rel_l1_thresh"] = round(random.uniform(0.01, 1), 2) if config["cache_type"] == "TeaCache" else None
-    config["mag_cache_threshold"] = round(random.uniform(0.01, 1), 2) if config["cache_type"] == "MagCache" else None
+    config["tea_cache_rel_l1_thresh"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05) if config["cache_type"] == "TeaCache" else None
+    config["mag_cache_threshold"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05) if config["cache_type"] == "MagCache" else None
     config["mag_cache_max_consecutive_skips"] = random.randint(1, 5) if config["cache_type"] == "MagCache" else None
-    config["mag_cache_retention_ratio"] = round(random.uniform(0, 1), 2) if config["cache_type"] == "MagCache" else None
-    config["distilled_cfg_scale"] = round(random.uniform(1.0, 32), 1)
+    config["mag_cache_retention_ratio"] = round_nearest(round(random.uniform(0, 1), 2), 0.05) if config["cache_type"] == "MagCache" else None
+    config["distilled_cfg_scale"] = round_nearest(round(random.uniform(1.0, 32), 1), 0.5)
     config["cfg_scale"] = round(random.uniform(1, 3), 1)
-    config["cfg_rescale"] = round(random.uniform(0, 1), 2)
+    config["cfg_rescale"] = round_nearest(round(random.uniform(0, 1), 2), 0.05)
     #config["lora"] = ["hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn"]
     #config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1))) else [] #["hyvideo_FastVideo_LoRA-fp8"]
     config["lora"] = None
-    config["lora_weight"] = round(random.uniform(0, 2), 2) if config["lora"] is not None and len(config["lora"]) > 0 else 0
+    config["lora_weight"] = round_nearest(round(random.uniform(0, 2), 2), 0.05) if config["lora"] is not None and len(config["lora"]) > 0 else 0
     config["prompt"] = ""
     config["gen_photo"] = gen_photo
     config["skipped"] = None
     config['exec_time_seconds'] = 0
+    config['status'] = 0
+    config['width'] = 256 #512,
+    config['height'] = 512 #768
     return config
 
 def start_video_gen(client, config, photo_init, video_init):
@@ -303,8 +319,8 @@ def start_video_gen(client, config, photo_init, video_init):
         param_22="Noise",
         param_23=True,
         param_24=config["lora"] if config["lora"] is not None and len(config["lora"]) > 0 else [],
-        param_25=512, #param_25=512,
-        param_26=768, #param_26=768,
+        param_25=config['width'],
+        param_26=config['height'],
         param_27=True,
         param_28=5,
 		param_30=config["lora_weight"],
@@ -325,6 +341,9 @@ def get_video(mode, photo_init, video_init, config):
     client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
     logging.warn("Launching with params: %s", str(config))
     gen_result = start_video_gen(client, config, photo_init, video_init)
+    config["status"] = 1
+    database.update_config(dbms, config)
+        
     if gen_result is not None and len(gen_result) > 0 and gen_result[1] is not None and gen_result[1] != "":
         job_id = gen_result[1]
         monitor_future = executor.submit(monitor_job, client, job_id)
@@ -360,10 +379,13 @@ def get_video(mode, photo_init, video_init, config):
             generated_video = (os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video']))
             if generated_video is not None:
                 logging.warn("Generation ok")
+                config["status"] = 2
+                database.update_config(dbms, config)
+        
                 result_upscale = client.predict(
                         video_path={"video":handle_file(generated_video)},
-                        model_key_selected="RealESRGAN_x2plus",
-                        output_scale_factor_from_slider=2,
+                        model_key_selected="RealESRNet_x4plus",
+                        output_scale_factor_from_slider=4,
                         tile_size=0,
                         enhance_face_ui=True,
                         denoise_strength_from_slider=0.5,
@@ -373,12 +395,16 @@ def get_video(mode, photo_init, video_init, config):
                 if len(result_upscale) > 0 and 'video' in result_upscale[0]:
                     logging.warn("Upscaling ok")
                     file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
+                    config["status"] = 3
+                    database.update_config(dbms, config)
+        
                     mp4 = add_audio_to_video(file_upscaled, config)
                     if mp4 is not None:
                         logging.warn("Adding audio ok")
                         end = time.time()
                         config["exec_time_seconds"] = int(end - start)
                         config["skipped"] = 1
+                        config["status"] = 4
                         database.update_config(dbms, config)
                         logging.warn("Process complete")
                         return mp4, config
@@ -463,7 +489,7 @@ class Healthcheck(Resource):
 @nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/')
 @nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/<string:message>/')
 class GenerateMessage(Resource):
-  def post (self, mode = 1, video_len = 5, message = None):
+  def post (self, mode = 1, video_len = 7, message = None):
     final_response = None
     try:
         photo_init = request.files["image"].read() if "image" in request.files else None
@@ -529,7 +555,7 @@ class GenerateMessage(Resource):
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/')
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:video_len>/')
 class GeneratePrompt(Resource):
-  def post (self, prompt = None, mode = 1, video_len = 5):
+  def post (self, prompt = None, mode = 1, video_len = 7):
     final_response = None
     try:
         photo_init = request.files["image"].read() if "image" in request.files else None
@@ -666,43 +692,63 @@ class Stop(Resource):
       logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
       return make_response('Error', 500)
 
+def get_current_preview_by_extension(extension):
+    if len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.'+extension)]) and len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.json')])> 0:
+        list_of_ext = glob.glob(os.environ.get("OUTPUT_PATH")+'*.'+extension)
+        latest_ext = max(list_of_ext, key=os.path.getctime)
+        #latest_ext_name = "_".join((Path(latest_ext).stem).split("_")[:-1])
+        latest_ext_name = Path(latest_ext).stem
+        list_of_json = glob.glob(os.environ.get("OUTPUT_PATH")+'*.json')
+        latest_json = max(list_of_json, key=os.path.getctime)
+        latest_json_name = Path(latest_json).stem
+        if latest_ext_name == latest_json_name:
+            return latest_ext
+    return None
+
+def get_status_from_framepack():
+    text_ret = ""
+    client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
+    data = client.predict(api_name="/check_for_current_job") 
+    if data is not None and len(data) == 6:       
+        if data[4] != '':
+            text_ret = text_ret + data[4] + "\n"
+        if data[5] != '':
+            splitted_data_5 = data[5].split("\n")
+            for datah in splitted_data_5:
+                if "span" in datah:
+                    to_add = datah.strip().replace("<span>","").replace("</span>","")
+                    text_ret = text_ret + to_add + "&nbsp;"
+    return text_ret.replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
+
 @limiter.limit("1/second")
 @nsaivg.route('/generate/check/job/')
 class GenerateCheck(Resource):
   def post (self):
     try:
-        client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
-        data = client.predict(api_name="/check_for_current_job")        
-        text_ret = ""
-        generation_id = database.select_config_by_skipped(dbms, 0)
-        if generation_id is not None and data is not None and len(data) == 6:
-            if data[4] != '':
-                text_ret = text_ret + data[4] + "\n"
-            if data[5] != '':
-                splitted_data_5 = data[5].split("\n")
-                for datah in splitted_data_5:
-                    if "span" in datah:
-                        to_add = datah.strip().replace("<span>","").replace("</span>","")
-                        text_ret = text_ret + to_add + "&nbsp;"
-            if text_ret != "":
-                if "starting" not in text_ret.lower() and "clip vision" not in text_ret.lower() and len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.mp4')]) and len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.json')])> 0:
-                    list_of_mp4 = glob.glob(os.environ.get("OUTPUT_PATH")+'*.mp4')
-                    latest_mp4 = max(list_of_mp4, key=os.path.getctime)
-                    latest_mp4_name = "_".join((Path(latest_mp4).stem).split("_")[:-1])
-                    list_of_json = glob.glob(os.environ.get("OUTPUT_PATH")+'*.json')
-                    latest_json = max(list_of_json, key=os.path.getctime)
-                    latest_json_name = Path(latest_json).stem
-                    if latest_mp4_name == latest_json_name:
-                        response = send_file(latest_mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
-                        response.headers['X-FramePack-File-Name'] = str(os.path.basename(latest_mp4)).encode('utf-8').decode('latin-1')
-                    else: 
-                        response = make_response('Job is starting', 202)
-                        response.headers['X-FramePack-File-Name'] = str("").encode('utf-8').decode('latin-1')
+        value = database.select_config_by_skipped(dbms, 0)
+        generation_id = value[0] if value != None and len(value) == 3 else None
+        status = value[2] if value != None and len(value) == 3 else None
+        if generation_id is not None and status is not None:
+            if status == 0:
+                return make_response('Starting', 201)
+            elif status == 1:
+                mp4 = get_current_preview_by_extension("mp4")
+                png = get_current_preview_by_extension("png") if mp4 is None else None
+                if mp4 is not None or png is not None:
+                    response = send_file((png if mp4 is None else mp4), attachment_filename=str(uuid.uuid4()) + (".png" if mp4 is None else ".mp4"), mimetype=('image/png' if mp4 is None else 'video/mp4'))
+                    response.headers['X-FramePack-File-Name'] = str(os.path.basename(png if mp4 is None else mp4)).encode('utf-8').decode('latin-1')
+                    response.headers['X-FramePack-Generation-Id'] = str(generation_id).encode('utf-8').decode('latin-1')
+                    response.headers['X-FramePack-Check-Current-Job'] = get_status_from_framepack().encode('utf-8').decode('latin-1')
+                    return response
                 else:
-                    response = make_response('Job is starting', 202)
-                response.headers['X-FramePack-Check-Current-Job'] = text_ret.replace("\n","&nbsp;").encode('utf-8').decode('latin-1') 
-                response.headers['X-FramePack-Generation-Id'] = str(generation_id[0]).encode('utf-8').decode('latin-1')
-                return response
+                    response = make_response('Starting', 205)
+                    response.headers['X-FramePack-Generation-Id'] = str(generation_id).encode('utf-8').decode('latin-1')
+                    response.headers['X-FramePack-Check-Current-Job'] = get_status_from_framepack().encode('utf-8').decode('latin-1') 
+                    return response
+            elif status == 2:
+                return make_response('Upscaling', 202)
+            elif status == 3:
+                return make_response('Adding audio', 204)
         return make_response('No jobs running', 206)
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
