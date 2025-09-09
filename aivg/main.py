@@ -454,9 +454,9 @@ def generate_image_pre(prompt):
 def create_app():
     app = Flask(__name__)
     with app.app_context():
-        #remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
+        remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
         database.create_db_tables(dbms)
-        #database.delete_wrong_entries(dbms)
+        database.delete_wrong_entries(dbms)
         app.config.from_object(Config())
         app.secret_key = os.environ.get("SECRET_KEY")
         return app
