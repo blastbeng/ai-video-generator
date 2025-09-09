@@ -96,7 +96,7 @@ def generate_image(prompt):
         "aspect_ratios_selection": "704*1344",
         "guidance_scale": 20.0,
         "image_number": 1,
-        "image_seed": random.randint(0, 9223372036854775807),
+        "image_seed": random.randint(0, 9999),
         "async_process": False,
         "style_selections": [ "Fooocus V2", "Fooocus V2 (Optional)", "Fooocus Enhance", "Fooocus Sharp", "Fooocus Negative", "Fooocus Cinematic", "Cinematic Diva", "Fooocus Photograph" ]
         })
@@ -384,11 +384,11 @@ def get_video(mode, photo_init, video_init, config):
         
                 result_upscale = client.predict(
                         video_path={"video":handle_file(generated_video)},
-                        model_key_selected="RealESRNet_x4plus",
+                        model_key_selected="RealESR-general-x4v3",
                         output_scale_factor_from_slider=4,
                         tile_size=0,
                         enhance_face_ui=True,
-                        denoise_strength_from_slider=0.5,
+                        denoise_strength_from_slider=1,
                         use_streaming=False,
                         api_name="/tb_handle_upscale_video"
                 )
