@@ -131,7 +131,7 @@ def add_audio_to_video(file_path, config):
         'num_steps': 40, 
         #'duration': float(config["requested_seconds"]), 
         'duration': float(seconds), 
-        'seed': str(config["seed"]), 
+        'seed': random.randint(0, 9999), 
         'full_precision': True
     }
     with  open(file_path,'rb') as file:
