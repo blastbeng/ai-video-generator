@@ -93,7 +93,7 @@ def select_config(self, config):
   try:
     value = None
     loras_string = (', '.join(config['lora']) if config["lora"] is not None and len(config["lora"]) > 0 else None)
-    stmt = select(self.params.c.id,self.params.c.skipped,self.params.c.status).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.model==config['model'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==loras_string,self.params.c.lora_weight==config['lora_weight'],self.params.c.gen_photo==config['gen_photo'],self.params.c.width==config['width'],self.params.c.height==config['height'])
+    stmt = select(self.params.c.id,self.params.c.skipped,self.params.c.status).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==loras_string,self.params.c.lora_weight==config['lora_weight'],self.params.c.gen_photo==config['gen_photo'],self.params.c.width==config['width'],self.params.c.height==config['height'])
     
     compiled = stmt.compile()
     with self.db_engine.connect() as conn:
@@ -132,6 +132,55 @@ def select_config_by_skipped(self, skipped):
   finally:
     return value
 
+def select_config_by_id(self, id):
+  try:
+    config = None
+    stmt = select('*').where(self.params.c.id==id)
+    
+    compiled = stmt.compile()
+    with self.db_engine.connect() as conn:
+      cursor = conn.execute(stmt)
+      records = cursor.fetchall()
+
+      if len(records) > 0:
+        record = records[0]
+        config = {}
+        config['generation_id'] = record[0]
+        config["skipped"] = record[1]
+        config['status'] = record[2]
+        config["requested_seconds"] = record[3]
+        config["has_input_image"] = record[4]
+        config["has_input_video"] = record[5]
+        config["model"] = record[6]
+        config["seed"] = record[7]
+        config["window_size"] = record[8]
+        config["steps"] = record[9]
+        config["cache_type"] = record[10]
+        config["tea_cache_steps"] = record[11]
+        config["tea_cache_rel_l1_thresh"] = record[12]
+        config["mag_cache_threshold"] = record[13]
+        config["mag_cache_max_consecutive_skips"] = record[14]
+        config["mag_cache_retention_ratio"] = record[15]
+        config["distilled_cfg_scale"] = record[16]
+        config["cfg_scale"] = record[17]
+        config["cfg_rescale"] = record[18]
+        config["lora"] = record[19]
+        config["lora_weight"] = record[20]
+        config["gen_photo"] = record[21]
+        config['exec_time_seconds'] = record[22]
+        config['width'] = record[23]
+        config['height'] = record[24]
+        config['tms_insert'] = record[25]
+        config['tms_update'] = record[26]
+      cursor.close()
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)
+  finally:
+    return config
+
 def update_config(self, config):
   try:
     value = []
@@ -140,7 +189,7 @@ def update_config(self, config):
       stmt = stmt.values(skipped=config["skipped"])
     if "exec_time_seconds" in config:
       stmt = stmt.values(exec_time_seconds=config["exec_time_seconds"])
-    if "status" in config:
+    if "seed" in config:
       stmt = stmt.values(seed=config["seed"])
     if "status" in config:
       stmt = stmt.values(status=config["status"])

@@ -253,8 +253,8 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
         return False, None
     return None, None
 
-def round_nearest(x, a):
-    return round(x / a) * a
+def round_nearest(x, a, precision):
+    return round((round(x / a) * a), precision)
 
 def get_config(mode, image, video, requested_seconds):
     config = {}
@@ -266,30 +266,30 @@ def get_config(mode, image, video, requested_seconds):
     config["has_input_image"] = 1 if image is not None or gen_photo == 1 else 0
     config["has_input_video"] = 1 if video is not None else 0
     config["requested_seconds"] = requested_seconds
-    config["seed"] = random.randint(0, 9223372036854775807)
+    config["seed"] = random.randint(0, 9999)
     config["window_size"] = random.randint(9, 15)
     config["steps"] = random.randint(20, 40)
     #config["cache_type"] = random.choice(["MagCache","TeaCache"])
     config["cache_type"] = "MagCache"
     config["tea_cache_steps"] = random.randint(1, 50) if config["cache_type"] == "TeaCache" else None
-    config["tea_cache_rel_l1_thresh"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05) if config["cache_type"] == "TeaCache" else None
-    config["mag_cache_threshold"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05) if config["cache_type"] == "MagCache" else None
+    config["tea_cache_rel_l1_thresh"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05, 2) if config["cache_type"] == "TeaCache" else None
+    config["mag_cache_threshold"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05, 2) if config["cache_type"] == "MagCache" else None
     config["mag_cache_max_consecutive_skips"] = random.randint(1, 5) if config["cache_type"] == "MagCache" else None
-    config["mag_cache_retention_ratio"] = round_nearest(round(random.uniform(0, 1), 2), 0.05) if config["cache_type"] == "MagCache" else None
-    config["distilled_cfg_scale"] = round_nearest(round(random.uniform(1.0, 32), 1), 0.5)
+    config["mag_cache_retention_ratio"] = round_nearest(round(random.uniform(0, 1), 2), 0.05, 2) if config["cache_type"] == "MagCache" else None
+    config["distilled_cfg_scale"] = round_nearest(round(random.uniform(1.0, 32), 1), 0.5, 1)
     config["cfg_scale"] = round(random.uniform(1, 3), 1)
-    config["cfg_rescale"] = round_nearest(round(random.uniform(0, 1), 2), 0.05)
+    config["cfg_rescale"] = round_nearest(round(random.uniform(0, 1), 2), 0.05, 2)
     #config["lora"] = ["hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn"]
     #config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1))) else [] #["hyvideo_FastVideo_LoRA-fp8"]
     config["lora"] = None
-    config["lora_weight"] = round_nearest(round(random.uniform(0, 2), 2), 0.05) if config["lora"] is not None and len(config["lora"]) > 0 else 0
+    config["lora_weight"] = round_nearest(round(random.uniform(0, 2), 2), 0.05, 2) if config["lora"] is not None and len(config["lora"]) > 0 else 0
     config["prompt"] = ""
     config["gen_photo"] = gen_photo
     config["skipped"] = None
     config['exec_time_seconds'] = 0
     config['status'] = 0
-    config['width'] = 256 #512,
-    config['height'] = 512 #768
+    config['width'] = 384 #512,
+    config['height'] = 640 #768
     return config
 
 def start_video_gen(client, config, photo_init, video_init):
@@ -454,9 +454,9 @@ def generate_image_pre(prompt):
 def create_app():
     app = Flask(__name__)
     with app.app_context():
-        remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
+        #remove_directory_tree(Path(os.environ.get("OUTPUT_PATH")))
         database.create_db_tables(dbms)
-        database.delete_wrong_entries(dbms)
+        #database.delete_wrong_entries(dbms)
         app.config.from_object(Config())
         app.secret_key = os.environ.get("SECRET_KEY")
         return app
@@ -502,35 +502,7 @@ class GenerateMessage(Resource):
             return make_response('Another generation in progress', 206)
         
         response = send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
-        response.headers['X-FramePack-Image-Input'] = ("True" if photo_init is not None else "False").encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Image-AI-Generated'] = ("True" if config["gen_photo"] == 1 else "False").encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Video-Input'] = ("True" if video_init is not None else "False").encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Seed'] = str(config["seed"]).encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Model'] = config["model"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Seconds'] = (str(config["requested_seconds"])).encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Window-Size'] = (str(config["window_size"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Steps'] = (str(config["steps"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Distilled-CfgS-cale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Cfg-Scale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Cfg-ReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Cache-Type'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
-        if str(config["cache_type"]) == "MagCache":
-            response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
-            response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-            response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-        elif  str(config["cache_type"]) == "TeaCache":
-            response.headers['X-FramePack-TeaCache-Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
-            response.headers['X-FramePack-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
-        if config["lora"] is not None and len(config["lora"]) > 0:
-            response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
-            response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
-        if config["prompt_image"] is not None:
-            response.headers['X-FramePack-Prompt-Image'] = config["prompt_image"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Execution-Time'] = (str(config['exec_time_seconds']) + " seconds").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Generation-Id'] = str(config['generation_id']).encode('utf-8').decode('latin-1')
-        
-        return response
+        return add_config_response_headers(response, config=config, photo_init=photo_init, video_init=video_init)
     except concurrent.futures.TimeoutError as te:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -567,36 +539,8 @@ class GeneratePrompt(Resource):
         elif mp4 is False:
             return make_response('Another generation in progress', 206)
         
-        response = send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')
-        response.headers['X-FramePack-Image-Input'] = ("True" if photo_init is not None else "False").encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Image-AI-Generated'] = ("True" if config["gen_photo"] == 1 else "False").encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Video-Input'] = ("True" if video_init is not None else "False").encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Seed'] = str(config["seed"]).encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Model'] = config["model"].encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Seconds'] = (str(config["requested_seconds"])).encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Window-Size'] = (str(config["window_size"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Steps'] = (str(config["steps"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Distilled-Cfg-Scale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Cfg-Scale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Cfg-ReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
-        response.headers['X-FramePack-Cache-Type'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
-        if str(config["cache_type"]) == "MagCache":
-            response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
-            response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-            response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
-        elif  str(config["cache_type"]) == "TeaCache":
-            response.headers['X-FramePack-TeaCache-Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
-            response.headers['X-FramePack-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
-        if config["lora"] is not None and len(config["lora"]) > 0:
-            response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
-            response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
-        if config["prompt_image"] is not None:
-            response.headers['X-FramePack-Prompt-Image'] = config["prompt_image"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Execution-Time'] = (str(config['exec_time_seconds']) + " seconds").encode('utf-8').decode('latin-1')
-        response.headers['X-FramePack-Generation-Id'] = str(config['generation_id']).encode('utf-8').decode('latin-1')
-        
-        return response
+        response = send_file(mp4, attachment_filename=str(uuid.uuid4()) + '.mp4', mimetype='video/mp4')        
+        return add_config_response_headers(response, config=config, photo_init=photo_init, video_init=video_init)
     except concurrent.futures.TimeoutError as te:
       exc_type, exc_obj, exc_tb = sys.exc_info()
       fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
@@ -696,8 +640,9 @@ def get_current_preview_by_extension(extension):
     if len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.'+extension)]) and len([path for path in Path(os.environ.get("OUTPUT_PATH")+"*").parent.glob('*.json')])> 0:
         list_of_ext = glob.glob(os.environ.get("OUTPUT_PATH")+'*.'+extension)
         latest_ext = max(list_of_ext, key=os.path.getctime)
-        #latest_ext_name = "_".join((Path(latest_ext).stem).split("_")[:-1])
         latest_ext_name = Path(latest_ext).stem
+        if extension == "mp4":
+            latest_ext_name = "_".join((latest_ext_name).split("_")[:-1])
         list_of_json = glob.glob(os.environ.get("OUTPUT_PATH")+'*.json')
         latest_json = max(list_of_json, key=os.path.getctime)
         latest_json_name = Path(latest_json).stem
@@ -720,6 +665,43 @@ def get_status_from_framepack():
                     text_ret = text_ret + to_add + "&nbsp;"
     return text_ret.replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
 
+def add_config_response_headers(response, generation_id=None, config=None, photo_init=None, video_init=None):
+    if config is None:
+        config = database.select_config_by_id(dbms, generation_id)
+        response.headers['X-FramePack-Image-Input'] = ("True" if config["has_input_image"] == 1 else "False").encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Video-Input'] = ("True" if config["has_input_video"] == 1 else "False").encode('utf-8').decode('latin-1') 
+    else:
+        response.headers['X-FramePack-Image-Input'] = ("True" if photo_init is not None else "False").encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-Video-Input'] = ("True" if video_init is not None else "False").encode('utf-8').decode('latin-1') 
+
+    response.headers['X-FramePack-Image-AI-Generated'] = ("True" if config["gen_photo"] == 1 else "False").encode('utf-8').decode('latin-1') 
+    response.headers['X-FramePack-Seed'] = str(config["seed"]).encode('utf-8').decode('latin-1')
+    response.headers['X-FramePack-Model'] = config["model"].encode('utf-8').decode('latin-1')
+    response.headers['X-FramePack-Seconds'] = (str(config["requested_seconds"])).encode('utf-8').decode('latin-1')
+    response.headers['X-FramePack-Window-Size'] = (str(config["window_size"])).encode('utf-8').decode('latin-1') 
+    response.headers['X-FramePack-Steps'] = (str(config["steps"])).encode('utf-8').decode('latin-1') 
+    response.headers['X-FramePack-Distilled-Cfg-Scale'] = (str(config["distilled_cfg_scale"])).encode('utf-8').decode('latin-1') 
+    response.headers['X-FramePack-Cfg-Scale'] = (str(config["cfg_scale"])).encode('utf-8').decode('latin-1') 
+    response.headers['X-FramePack-Cfg-ReScale'] = (str(config["cfg_rescale"])).encode('utf-8').decode('latin-1') 
+    response.headers['X-FramePack-Cache-Type'] = (str(config["cache_type"])).encode('utf-8').decode('latin-1') 
+    if str(config["cache_type"]) == "MagCache":
+        response.headers['X-FramePack-MagCache-Threshold'] = (str(config["mag_cache_threshold"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-MagCache-Max-Consecutive-Skips'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-MagCache-Retention-Ratio'] = (str(config["mag_cache_max_consecutive_skips"])).encode('utf-8').decode('latin-1') 
+    elif str(config["cache_type"]) == "TeaCache":
+        response.headers['X-FramePack-TeaCache-Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
+        response.headers['X-FramePack-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
+    if config["lora"] is not None and len(config["lora"]) > 0:
+        response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
+        response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
+    if "prompt" in config and config["prompt"] is not None:
+        response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
+    if "prompt_image" in config and config["prompt_image"] is not None:
+        response.headers['X-FramePack-Prompt-Image'] = config["prompt_image"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
+    response.headers['X-FramePack-Execution-Time'] = (str(config['exec_time_seconds']) + " seconds").encode('utf-8').decode('latin-1')
+    response.headers['X-FramePack-Generation-Id'] = str(config['generation_id']).encode('utf-8').decode('latin-1')
+    return response
+
 @limiter.limit("1/second")
 @nsaivg.route('/generate/check/job/')
 class GenerateCheck(Resource):
@@ -730,25 +712,25 @@ class GenerateCheck(Resource):
         status = value[2] if value != None and len(value) == 3 else None
         if generation_id is not None and status is not None:
             if status == 0:
-                return make_response('Starting', 201)
+                return add_config_response_headers(make_response('Starting', 201), generation_id=int(generation_id))
             elif status == 1:
                 mp4 = get_current_preview_by_extension("mp4")
                 png = get_current_preview_by_extension("png") if mp4 is None else None
                 if mp4 is not None or png is not None:
                     response = send_file((png if mp4 is None else mp4), attachment_filename=str(uuid.uuid4()) + (".png" if mp4 is None else ".mp4"), mimetype=('image/png' if mp4 is None else 'video/mp4'))
+                    response = add_config_response_headers(response, generation_id=int(generation_id))
                     response.headers['X-FramePack-File-Name'] = str(os.path.basename(png if mp4 is None else mp4)).encode('utf-8').decode('latin-1')
-                    response.headers['X-FramePack-Generation-Id'] = str(generation_id).encode('utf-8').decode('latin-1')
                     response.headers['X-FramePack-Check-Current-Job'] = get_status_from_framepack().encode('utf-8').decode('latin-1')
                     return response
                 else:
                     response = make_response('Starting', 205)
-                    response.headers['X-FramePack-Generation-Id'] = str(generation_id).encode('utf-8').decode('latin-1')
+                    response = add_config_response_headers(response, generation_id=int(generation_id))
                     response.headers['X-FramePack-Check-Current-Job'] = get_status_from_framepack().encode('utf-8').decode('latin-1') 
                     return response
             elif status == 2:
-                return make_response('Upscaling', 202)
+                return add_config_response_headers(make_response('Upscaling', 202), generation_id=int(generation_id))
             elif status == 3:
-                return make_response('Adding audio', 204)
+                return add_config_response_headers(make_response('Adding audio', 204), generation_id=int(generation_id))
         return make_response('No jobs running', 206)
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
