@@ -103,6 +103,7 @@ def generate_image(prompt):
     if len(result) > 0 and 'url' in result[0]:
         return result[0]['url']
     else:
+        database.delete_wrong_entries(dbms)
         raise Exception("Result from Fooocus-API is None")
 
 def download_file(url, extension, file_path=os.environ.get("OUTPUT_PATH")):
@@ -125,13 +126,14 @@ def add_audio_to_video(file_path, config):
     seconds = round(frames / fps)
     payload = {
         #'prompt': config["prompt"], 
-        #'negative_prompt': "music", 
+        'negative_prompt': "music", 
         'variant': "large_44k_v2", 
-        'cfg_strenght': 10.0,
+        'cfg_strenght': 6.0,
         'num_steps': 40, 
         #'duration': float(config["requested_seconds"]), 
         'duration': float(seconds), 
-        'seed': random.randint(0, 9999), 
+        #'seed': random.randint(0, 9999), 
+        'mask_away_clip': True,
         'full_precision': True
     }
     with  open(file_path,'rb') as file:
@@ -350,7 +352,7 @@ def get_video(mode, photo_init, video_init, config):
         monitor_result = None
         
         try:
-            c_timeout = (config["requested_seconds"]*200) + 300
+            c_timeout = (config["requested_seconds"]*360) + 300
             if config["lora"] is not None and len(config["lora"]) != 0:
                 logging.warn("Lora detected, adding some timeout to allow Lora loading")
                 c_timeout = c_timeout + 400
@@ -388,7 +390,7 @@ def get_video(mode, photo_init, video_init, config):
                         output_scale_factor_from_slider=4,
                         tile_size=0,
                         enhance_face_ui=True,
-                        denoise_strength_from_slider=1,
+                        denoise_strength_from_slider=0.5,
                         use_streaming=False,
                         api_name="/tb_handle_upscale_video"
                 )
