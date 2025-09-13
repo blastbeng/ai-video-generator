@@ -96,7 +96,7 @@ def generate_image(prompt):
         "aspect_ratios_selection": "704*1344",
         "guidance_scale": 20.0,
         "image_number": 1,
-        "image_seed": random.randint(0, 9999),
+        "image_seed": random.randint(0, 99999),
         "async_process": False,
         "style_selections": [ "Fooocus V2", "Fooocus V2 (Optional)", "Fooocus Enhance", "Fooocus Sharp", "Fooocus Negative", "Fooocus Cinematic", "Cinematic Diva", "Fooocus Photograph" ]
         })
@@ -128,12 +128,12 @@ def add_audio_to_video(file_path, config):
         #'prompt': config["prompt"], 
         'negative_prompt': "music", 
         'variant': "large_44k_v2", 
-        'cfg_strenght': 6.0,
-        'num_steps': 40, 
+        'cfg_strenght': 7.0,
+        'num_steps': 50, 
         #'duration': float(config["requested_seconds"]), 
         'duration': float(seconds), 
-        #'seed': random.randint(0, 9999), 
-        'mask_away_clip': True,
+        'seed': random.randint(0, 99999), 
+        'mask_away_clip': False,
         'full_precision': True
     }
     with  open(file_path,'rb') as file:
@@ -268,11 +268,11 @@ def get_config(mode, image, video, requested_seconds):
     config["has_input_image"] = 1 if image is not None or gen_photo == 1 else 0
     config["has_input_video"] = 1 if video is not None else 0
     config["requested_seconds"] = requested_seconds
-    config["seed"] = random.randint(0, 9999)
+    config["seed"] = random.randint(0, 99999)
     config["window_size"] = random.randint(9, 15)
-    config["steps"] = random.randint(20, 40)
-    #config["cache_type"] = random.choice(["MagCache","TeaCache"])
-    config["cache_type"] = "MagCache"
+    config["steps"] = random.randint(25, 50)
+    config["cache_type"] = random.choice(["None","MagCache","TeaCache"])
+    #config["cache_type"] = "MagCache"
     config["tea_cache_steps"] = random.randint(1, 50) if config["cache_type"] == "TeaCache" else None
     config["tea_cache_rel_l1_thresh"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05, 2) if config["cache_type"] == "TeaCache" else None
     config["mag_cache_threshold"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05, 2) if config["cache_type"] == "MagCache" else None
@@ -290,8 +290,8 @@ def get_config(mode, image, video, requested_seconds):
     config["skipped"] = None
     config['exec_time_seconds'] = 0
     config['status'] = 0
-    config['width'] = 384 #512,
-    config['height'] = 640 #768
+    config['width'] = 512
+    config['height'] = 768
     return config
 
 def start_video_gen(client, config, photo_init, video_init):
@@ -352,7 +352,7 @@ def get_video(mode, photo_init, video_init, config):
         monitor_result = None
         
         try:
-            c_timeout = (config["requested_seconds"]*360) + 300
+            c_timeout = (config["requested_seconds"]*600) + 300
             if config["lora"] is not None and len(config["lora"]) != 0:
                 logging.warn("Lora detected, adding some timeout to allow Lora loading")
                 c_timeout = c_timeout + 400
@@ -386,8 +386,9 @@ def get_video(mode, photo_init, video_init, config):
         
                 result_upscale = client.predict(
                         video_path={"video":handle_file(generated_video)},
-                        model_key_selected="RealESR-general-x4v3",
-                        output_scale_factor_from_slider=4,
+                        #model_key_selected="RealESR-general-x4v3",
+                        model_key_selected="RealESRGAN_x2plus",                        
+                        output_scale_factor_from_slider=2,
                         tile_size=0,
                         enhance_face_ui=True,
                         denoise_strength_from_slider=0.5,
@@ -700,7 +701,8 @@ def add_config_response_headers(response, generation_id=None, config=None, photo
         response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
     if "prompt_image" in config and config["prompt_image"] is not None:
         response.headers['X-FramePack-Prompt-Image'] = config["prompt_image"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
-    response.headers['X-FramePack-Execution-Time'] = (str(config['exec_time_seconds']) + " seconds").encode('utf-8').decode('latin-1')
+    if 'exec_time_seconds' in config and config['exec_time_seconds'] is not None and config['exec_time_seconds'] != 0:
+        response.headers['X-FramePack-Execution-Time'] = (str(datetime.timedelta(seconds=int(config['exec_time_seconds']))) + " - " + str(int(config['exec_time_seconds'])/int(config["requested_seconds"])) + "Sec per generated second").encode('utf-8').decode('latin-1')
     response.headers['X-FramePack-Generation-Id'] = str(config['generation_id']).encode('utf-8').decode('latin-1')
     return response
 

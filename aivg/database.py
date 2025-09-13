@@ -93,7 +93,29 @@ def select_config(self, config):
   try:
     value = None
     loras_string = (', '.join(config['lora']) if config["lora"] is not None and len(config["lora"]) > 0 else None)
-    stmt = select(self.params.c.id,self.params.c.skipped,self.params.c.status).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.model==config['model'],self.params.c.seed==config['seed'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==loras_string,self.params.c.lora_weight==config['lora_weight'],self.params.c.gen_photo==config['gen_photo'],self.params.c.width==config['width'],self.params.c.height==config['height'])
+    stmt = select(self.params.c.id,self.params.c.skipped,self.params.c.status).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.model==config['model'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==loras_string,self.params.c.lora_weight==config['lora_weight'],self.params.c.gen_photo==config['gen_photo'],self.params.c.width==config['width'],self.params.c.height==config['height'])
+    
+    compiled = stmt.compile()
+    with self.db_engine.connect() as conn:
+      cursor = conn.execute(stmt)
+      records = cursor.fetchall()
+
+      if len(records) > 0:
+        value = records[0]
+      cursor.close()
+  except Exception as e:
+    exc_type, exc_obj, exc_tb = sys.exc_info()
+    fname = os.path.split(exc_tb.tb_frame.f_code.co_filename)[1]
+    logging.error("%s %s %s", exc_type, fname, exc_tb.tb_lineno, exc_info=1)
+    raise(e)
+  finally:
+    return value
+
+def select_similar_config(self, config):
+  try:
+    value = None
+    loras_string = (', '.join(config['lora']) if config["lora"] is not None and len(config["lora"]) > 0 else None)
+    stmt = select(self.params.c.id,self.params.c.skipped,self.params.c.status).where(self.params.c.has_input_image==config['has_input_image'],self.params.c.has_input_video==config['has_input_video'],self.params.c.model==config['model'],self.params.c.window_size==config['window_size'],self.params.c.steps==config['steps'],self.params.c.cache_type==config['cache_type'],self.params.c.tea_cache_steps==config['tea_cache_steps'],self.params.c.tea_cache_rel_l1_thresh==config['tea_cache_rel_l1_thresh'],self.params.c.mag_cache_threshold==config['mag_cache_threshold'],self.params.c.mag_cache_max_consecutive_skips==config['mag_cache_max_consecutive_skips'],self.params.c.mag_cache_retention_ratio==config['mag_cache_retention_ratio'],self.params.c.distilled_cfg_scale==config['distilled_cfg_scale'],self.params.c.cfg_scale==config['cfg_scale'],self.params.c.cfg_rescale==config['cfg_rescale'],self.params.c.lora==loras_string,self.params.c.lora_weight==config['lora_weight'],self.params.c.gen_photo==config['gen_photo'],self.params.c.width==config['width'],self.params.c.height==config['height'])
     
     compiled = stmt.compile()
     with self.db_engine.connect() as conn:
