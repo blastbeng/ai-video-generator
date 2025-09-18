@@ -59,6 +59,7 @@ class Database:
                 Column('exec_time_seconds', Integer, nullable=True),
                 Column('width', Integer, nullable=True),
                 Column('height', Integer, nullable=True),
+                Column('top_config', Integer, nullable=True),
                 Column('tms_insert', DateTime(timezone=True), server_default=func.now()),
                 Column('tms_update', DateTime(timezone=True), onupdate=func.now())
                 )
@@ -215,6 +216,8 @@ def update_config(self, config):
       stmt = stmt.values(seed=config["seed"])
     if "status" in config:
       stmt = stmt.values(status=config["status"])
+    if "top_config" in config:
+      stmt = stmt.values(top_config=config["top_config"])
            
     compiled = stmt.compile()
     with self.db_engine.connect() as conn:
