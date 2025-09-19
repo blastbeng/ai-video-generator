@@ -353,7 +353,7 @@ def get_video(mode, photo_init, video_init, config):
         monitor_result = None
         
         try:
-            c_timeout = (config["requested_seconds"]*360) + 300
+            c_timeout = (config["requested_seconds"]*400) + 300
             if config["lora"] is not None and len(config["lora"]) != 0:
                 logging.warn("Lora detected, adding some timeout to allow Lora loading")
                 c_timeout = c_timeout + 400
