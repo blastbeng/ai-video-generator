@@ -119,14 +119,14 @@ def save_file(image, extension, file_path=os.environ.get("OUTPUT_PATH")):
         full_path_f.write(image)
     return full_path
 
-def add_audio_to_video(file_path, config):
+def add_audio_to_video(file_path, config, prompt):
     url = os.environ.get("MMAUDIO_ENDPOINT") + "/process"
     video = cv2.VideoCapture(file_path)
     frames = video.get(cv2.CAP_PROP_FRAME_COUNT)
     fps = video.get(cv2.CAP_PROP_FPS)
     seconds = round(frames / fps)
     payload = {
-        #'prompt': config["prompt"], 
+        'prompt': "the audio must necessarily use the Italian language in case there are people speaking, this is the prompt: '" + prompt + "'", 
         'negative_prompt': os.environ.get("NEGATIVE_PROMPT"), 
         'variant': "large_44k_v2", 
         'cfg_strenght': 7.0,
@@ -168,23 +168,30 @@ def remove_html_tags_and_content(text):
 #    if (anything_llm_response.status_code != 200):
 #        raise Exception("Error resetting AnythingLLM workspace")
 
-def add_new_generation_framepack(video_len, mode, message, prompt, image, video):
+def add_new_generation_framepack(video_len, mode, message, prompt, image, video, use_top):
     time.sleep(2)
     if database.select_config_by_skipped(dbms, 0) is None:
 
-        for n in range(10000):
-            config = get_config(mode, image, video, video_len)
-            value = database.select_config(dbms, config)
-            if value is not None:
-                config["generation_id"] = value[0]
-                config["skipped"] =  value[1]
-                config["status"] =  value[2]
-            if config["skipped"] is not None and config["skipped"] == 2:
-                logging.warn("Found skipped params: %s", str(config))
-            else:
-                break
+        if use_top: 
+            config = database.select_top_config(dbms, mode, image, video)
+            
+
+        else:
+            for n in range(10000):
+                config = get_config(mode, image, video)
+                value = database.select_config(dbms, config)
+                if value is not None:
+                    config["generation_id"] = value[0]
+                    config["skipped"] =  value[1]
+                    config["status"] =  value[2]
+                if config["skipped"] is not None and config["skipped"] == 2:
+                    logging.warn("Found skipped params: %s", str(config))
+                else:
+                    break
 
         if config["skipped"] is None or config["skipped"] == 0 or config["skipped"] == 1:
+            config["exec_time_seconds"] = None
+            config["requested_seconds"] = video_len
             
             if config["skipped"] is None:
                 logging.warn("Saving params to database")
@@ -245,10 +252,8 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
                 start_image = generate_image(config["prompt_image"])
                 photo_init = download_file(start_image.replace("127.0.0.1", "172.17.0.1").replace("localhost", "172.17.0.1"), "png")
 
-            config["prompt"] = prompt
-
             photo_end = None
-            mp4, config = get_video(mode, photo_init, video_init, config)
+            mp4, config = get_video(mode, photo_init, video_init, config, prompt)
             return mp4, config
         else:
             logging.error("I haven't found any working config")
@@ -259,50 +264,50 @@ def add_new_generation_framepack(video_len, mode, message, prompt, image, video)
 def round_nearest(x, a, precision):
     return round((round(x / a) * a), precision)
 
-def get_config(mode, image, video, requested_seconds):
+def get_config(mode, image, video):
     config = {}
-    gen_photo = random.randint(0, 1)
+    gen_photo = 1 if image is None else 0 #(random.randint(0, 1))
     model = "F1" if mode else "Original"
     if video is not None:
         model = "Video F1" if mode else "Video"
     config["model"] = model
     config["has_input_image"] = 1 if image is not None or gen_photo == 1 else 0
     config["has_input_video"] = 1 if video is not None else 0
-    config["requested_seconds"] = requested_seconds
-    config["seed"] = 31337 #random.randint(0, 99999)
+    config["requested_seconds"] = None
+    config["seed"] = random.randint(0, 21474) #2500
     config["window_size"] = 9 #random.randint(9, 15)
-    config["steps"] = random.randint(10, 50)
-    config["cache_type"] = random.choice(["MagCache","TeaCache"])
-    #config["cache_type"] = "MagCache"
+    config["steps"] = int(random.randrange(20, 101, 10)) #random.randint(25, 100)
+    #config["cache_type"] = random.choice(["MagCache","TeaCache"])
+    config["cache_type"] = "MagCache"
     config["tea_cache_steps"] = random.randint(1, 50) if config["cache_type"] == "TeaCache" else None
     config["tea_cache_rel_l1_thresh"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05, 2) if config["cache_type"] == "TeaCache" else None
     config["mag_cache_threshold"] = round_nearest(round(random.uniform(0.01, 1), 2), 0.05, 2) if config["cache_type"] == "MagCache" else None
     config["mag_cache_max_consecutive_skips"] = random.randint(1, 5) if config["cache_type"] == "MagCache" else None
     config["mag_cache_retention_ratio"] = round_nearest(round(random.uniform(0, 1), 2), 0.05, 2) if config["cache_type"] == "MagCache" else None
     config["distilled_cfg_scale"] = round_nearest(round(random.uniform(1.0, 32), 1), 0.5, 1)
-    config["cfg_scale"] = round(random.uniform(1, 3), 1)
-    config["cfg_rescale"] = round_nearest(round(random.uniform(0, 1), 2), 0.05, 2)
+    config["cfg_scale"] = round(random.uniform(1, 3), 1) #1
+    config["cfg_rescale"] = round_nearest(round(random.uniform(0, 1), 2), 0.05, 2) #0
     #config["lora"] = ["hunyuan_video_accvid_5_steps_lora_rank16_fp8_e4m3fn"]
     #config["lora"] = ["hyvideo_FastVideo_LoRA-fp8"] if (bool(random.getrandbits(1))) else [] #["hyvideo_FastVideo_LoRA-fp8"]
     config["lora"] = None
     config["lora_weight"] = round_nearest(round(random.uniform(0, 2), 2), 0.05, 2) if config["lora"] is not None and len(config["lora"]) > 0 else 0
-    config["prompt"] = ""
     config["gen_photo"] = gen_photo
     config["skipped"] = None
-    config['exec_time_seconds'] = 0
+    config['exec_time_seconds'] = None
     config['status'] = 0
     config['width'] = 512
     config['height'] = 768
+    config['top_config'] = 0
     return config
 
-def start_video_gen(client, config, photo_init, video_init):
+def start_video_gen(client, config, photo_init, video_init, prompt):
     result = client.predict(
         selected_model=config["model"],
         param_1=handle_file(photo_init) if photo_init is not None else None,
         param_2=({"video":handle_file(video_init)}) if video_init is not None else None,
         param_3=None,
         param_4=1,
-        param_5=config["prompt"].replace("\n", " "),
+        param_5=prompt.replace("\n", " "),
         param_6=os.environ.get("NEGATIVE_PROMPT"),
         param_7=config["seed"],
         param_8=False,
@@ -339,11 +344,11 @@ def monitor_job(client, job_id):
     return monitor_result
 
 
-def get_video(mode, photo_init, video_init, config):
+def get_video(mode, photo_init, video_init, config, prompt):
     start = time.time()
     client = Client(os.environ.get("FRAMEPACK_ENDPOINT"))
     logging.warn("Launching with params: %s", str(config))
-    gen_result = start_video_gen(client, config, photo_init, video_init)
+    gen_result = start_video_gen(client, config, photo_init, video_init, prompt)
     config["status"] = 1
     database.update_config(dbms, config)
         
@@ -380,7 +385,9 @@ def get_video(mode, photo_init, video_init, config):
         
         if monitor_result is not None and len(monitor_result) > 0 and 'video' in monitor_result[0]:
             generated_video = (os.environ.get("OUTPUT_PATH") + os.path.basename(monitor_result[0]['video']))
-            if generated_video is not None:
+
+            config = database.select_config_by_id(dbms, config["generation_id"])
+            if generated_video is not None and config["status"] != 4:
                 logging.warn("Generation ok")
                 config["status"] = 2
                 database.update_config(dbms, config)
@@ -388,7 +395,8 @@ def get_video(mode, photo_init, video_init, config):
                 result_upscale = client.predict(
                         video_path={"video":handle_file(generated_video)},
                         #model_key_selected="RealESR-general-x4v3",
-                        model_key_selected="RealESRGAN_x2plus",                        
+                        #model_key_selected="RealESRGAN_x2plus",
+                        model_key_selected="RealESRNet_x4plus",              
                         output_scale_factor_from_slider=2,
                         tile_size=0,
                         enhance_face_ui=True,
@@ -396,13 +404,14 @@ def get_video(mode, photo_init, video_init, config):
                         use_streaming=False,
                         api_name="/tb_handle_upscale_video"
                 )
-                if len(result_upscale) > 0 and 'video' in result_upscale[0]:
+                config = database.select_config_by_id(dbms, config["generation_id"])
+                if len(result_upscale) > 0 and 'video' in result_upscale[0] and config["status"] != 4:
                     logging.warn("Upscaling ok")
                     file_upscaled = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_upscale[0]['video'])
                     config["status"] = 3
                     database.update_config(dbms, config)
         
-                    mp4 = add_audio_to_video(file_upscaled, config)
+                    mp4 = add_audio_to_video(file_upscaled, config, prompt)
                     if mp4 is not None:
                         logging.warn("Adding audio ok")
                         end = time.time()
@@ -490,15 +499,16 @@ class Healthcheck(Resource):
 @limiter.limit("1/second")
 @nsaivg.route('/generate/enhance/')
 @nsaivg.route('/generate/enhance/<int:mode>/')
-@nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/')
-@nsaivg.route('/generate/enhance/<int:mode>/<int:video_len>/<string:message>/')
+@nsaivg.route('/generate/enhance/<int:mode>/<int:use_top>/')
+@nsaivg.route('/generate/enhance/<int:mode>/<int:use_top>/<int:video_len>/')
+@nsaivg.route('/generate/enhance/<int:mode>/<int:use_top>/<int:video_len>/<string:message>/')
 class GenerateMessage(Resource):
-  def post (self, mode = 1, video_len = 7, message = None):
+  def post (self, mode = 1, use_top = 0, video_len = 7, message = None):
     final_response = None
     try:
         photo_init = request.files["image"].read() if "image" in request.files else None
         video_init = request.files["video"].read() if "video" in request.files else None
-        mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), message, None, photo_init, video_init)
+        mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), message, None, photo_init, video_init, (True if use_top == 1 else False))
         if mp4 is None:
             
             return make_response('Error generating video', 500)
@@ -529,14 +539,15 @@ class GenerateMessage(Resource):
 @limiter.limit("1/second")
 @nsaivg.route('/generate/prompt/<string:prompt>/')
 @nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/')
-@nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:video_len>/')
+@nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:use_top>/')
+@nsaivg.route('/generate/prompt/<string:prompt>/<int:mode>/<int:use_top>/<int:video_len>/')
 class GeneratePrompt(Resource):
   def post (self, prompt = None, mode = 1, video_len = 7):
     final_response = None
     try:
         photo_init = request.files["image"].read() if "image" in request.files else None
         video_init = request.files["video"].read() if "video" in request.files else None
-        mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), None, prompt, photo_init, video_init)
+        mp4, config = add_new_generation_framepack(video_len, (True if mode == 1 else False), None, prompt, photo_init, video_init, (True if use_top == 1 else False))
         if mp4 is None:
             
             return make_response('Error generating video', 500)
@@ -611,9 +622,7 @@ class GenerateSkipped(Resource):
         config = {}
         config["generation_id"] = generation_id
         config["skipped"] = skipped
-        config["status"] = 4
         database.update_config(dbms, config)
-        Thread(target=stop_aivg).start()
         return make_response('Done', 200)        
     except Exception as e:
       exc_type, exc_obj, exc_tb = sys.exc_info()
@@ -629,6 +638,7 @@ class GenerateTopConfig(Resource):
         config = {}
         config["generation_id"] = generation_id
         config["top_config"] = top_config
+        config["skipped"] = 1
         database.update_config(dbms, config)
         return make_response('Done', 200)        
     except Exception as e:
@@ -720,8 +730,8 @@ def add_config_response_headers(response, generation_id=None, config=None, photo
     if config["lora"] is not None and len(config["lora"]) > 0:
         response.headers['X-FramePack-Lora'] = (', '.join(config["lora"])).encode('utf-8').decode('latin-1')
         response.headers['X-FramePack-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
-    if "prompt" in config and config["prompt"] is not None:
-        response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
+    #if "prompt" in config and config["prompt"] is not None:
+    #    response.headers['X-FramePack-Prompt'] = config["prompt"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
     if "prompt_image" in config and config["prompt_image"] is not None:
         response.headers['X-FramePack-Prompt-Image'] = config["prompt_image"].replace("\n","&nbsp;").encode('utf-8').decode('latin-1')
     if 'exec_time_seconds' in config and config['exec_time_seconds'] is not None and config['exec_time_seconds'] != 0:
