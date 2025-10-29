@@ -1,4 +1,4 @@
-ARG CUDA_VERSION
+ARG CUDA_VERSION=12.8.1
 
 FROM nvidia/cuda:${CUDA_VERSION}-devel-ubuntu22.04
 
@@ -15,6 +15,8 @@ COPY framepack-studio/requirements.txt .
 RUN pip3 install --no-cache-dir -r requirements.txt
 RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 1-3) && \
     pip3 install --no-cache-dir torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
+#RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 1-3) && \
+#    pip3 install --no-cache-dir torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/nightly/cu${CUDA_SHORT_VERSION}"
 
 RUN pip3 install triton
 
@@ -25,8 +27,10 @@ ENV EXT_PARALLEL=4
 ENV NVCC_APPEND_FLAGS="--threads 8"
 ENV MAX_JOBS=32
 WORKDIR /app/build_space/SageAttention
-RUN sed -i "/compute_capabilities = set()/a compute_capabilities = {\"$TORCH_CUDA_ARCH_LIST\"}" setup.py
+#RUN sed -i "/compute_capabilities = set()/a compute_capabilities = {\"$TORCH_CUDA_ARCH_LIST\"}" setup.py
 RUN pip install . --no-build-isolation
+
+RUN pip3 install torchdiffeq
 
 WORKDIR /app
 

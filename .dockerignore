@@ -45,6 +45,8 @@ Wan2GP/loras_qwen
 Wan2GP/loras_qwen/
 Wan2GP/ckpts
 Wan2GP/ckpts/
+Wan2GP/venv
+Wan2GP/venv/
 wgp_config.json
 aivg/configs
 aivg/configs/
