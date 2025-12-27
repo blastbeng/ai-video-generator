@@ -14,7 +14,7 @@ COPY framepack-studio/requirements.txt .
 # Install dependencies
 RUN pip3 install --no-cache-dir -r requirements.txt
 RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 1-3) && \
-    pip3 install --no-cache-dir torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
+    pip3 install --no-cache-dir torch torchvision torchaudio torchcodec --index-url "https://download.pytorch.org/whl/cu${CUDA_SHORT_VERSION}"
 #RUN export CUDA_SHORT_VERSION=$(echo "${CUDA_VERSION}" | sed 's/\.//g' | cut -c 1-3) && \
 #    pip3 install --no-cache-dir torch torchvision torchaudio --index-url "https://download.pytorch.org/whl/nightly/cu${CUDA_SHORT_VERSION}"
 
@@ -30,7 +30,7 @@ WORKDIR /app/build_space/SageAttention
 #RUN sed -i "/compute_capabilities = set()/a compute_capabilities = {\"$TORCH_CUDA_ARCH_LIST\"}" setup.py
 RUN pip install . --no-build-isolation
 
-RUN pip3 install torchdiffeq
+RUN pip3 install torchdiffeq open_clip_torch omegaconf librosa
 
 WORKDIR /app
 

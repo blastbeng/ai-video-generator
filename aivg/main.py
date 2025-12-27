@@ -203,8 +203,8 @@ def add_audio_to_video(file_path, config, prompt):
         full_precision_val=False,
         api_name="/run_mmaudio"
     )
-    if len(result_audio) >= 1 and 'video' in result_audio[1] and config["status"] != 4:
-        file_with_audio = os.environ.get("OUTPUT_PATH") + "postprocessed_output/saved_videos/" + os.path.basename(result_audio[0]['video'])
+    if len(result_audio) >= 1 and 'value' in result_audio[1] and 'video' in result_audio[1]['value'] and config["status"] != 4:
+        file_with_audio = os.environ.get("OUTPUT_PATH") + "audio/" + os.path.basename(result_audio[1]['value']['video'])
         return file_with_audio
     return None
 
@@ -293,9 +293,10 @@ def add_new_generation(video_len, mode, message, prompt, image, video, use_top):
             if prompt is None:
                 #reset_workspace()
                 message = (str(random.choice(json.loads(os.environ.get('PROMPT_LIST'))) if message is None else message))
-                for lora in config["lora"]:
-                    lora_prompt = random.choice(LORAS[lora])
-                    message = lora_prompt + ". " + message
+                if"lora" in config and config["lora"] is not None:
+                    for lora in config["lora"]:
+                        lora_prompt = random.choice(LORAS[lora])
+                        message = lora_prompt + ". " + message
                 data = {
                     "message": message,
                     "mode": "chat"
@@ -353,11 +354,11 @@ def add_new_generation(video_len, mode, message, prompt, image, video, use_top):
                 else:
                     config["prompt_image"] = prompt
 
-
-            for lora in config["lora"]:
-                lora_prompt = random.choice(LORAS[lora])
-                prompt = prompt + ("" if prompt.endswith(".") else ".") + lora_prompt
-                config["prompt_image"] = config["prompt_image"] + ("" if config["prompt_image"].endswith(".") else ".") + lora_prompt
+            if "lora" in config and config["lora"] is not None:
+                for lora in config["lora"]:
+                    lora_prompt = random.choice(LORAS[lora])
+                    prompt = prompt + ("" if prompt.endswith(".") else ".") + lora_prompt
+                    config["prompt_image"] = config["prompt_image"] + ("" if config["prompt_image"].endswith(".") else ".") + lora_prompt
 
             photo_init = None
             video_init = None
@@ -386,8 +387,8 @@ def round_nearest(x, a, precision):
 
 def get_config(mode, image, video):
     config = {}
-    #gen_photo = (random.randint(0, 1)) if image is None else 0
-    gen_photo = 1 if image is None else 0
+    gen_photo = (random.randint(0, 1)) if image is None else 0
+    #gen_photo = 1 if image is None else 0
     model = ""
     if mode == 0 or mode == 1:
         model = "F1" if mode == 1 else "Original"
@@ -404,13 +405,13 @@ def get_config(mode, image, video):
     config["requested_seconds"] = None
     config["seed"] = random.randint(0, 999999999) if mode == 2 else random.randint(0, 21474)
     config["window_size"] = 129 if mode == 2 else 9
-    config["steps"] = random.randint(3, 10) if mode == 2 else int(random.randrange(25, 51, 5)) #random.randint(25, 100)
+    config["steps"] = random.randint(3, 10) if mode == 2 else int(random.randrange(25, 41, 5))
     #config["steps"] = random.randint(20, 40)
     #config["steps"] = 25
-    #config["cache_type"] = random.choice(["", "mag"]) if mode == 2 else random.choice(["None", "MagCache","TeaCache"]) 
+    #config["cache_type"] = random.choice(["", "mag"]) if mode == 2 else random.choice(["None", "MagCache"])
     #config["cache_type"] = random.choice(["", "mag"]) if mode == 2 else random.choice(["MagCache","TeaCache"]) 
-    #config["cache_type"] = "MagCache"
-    config["cache_type"] = "None"
+    config["cache_type"] = "MagCache"
+    #config["cache_type"] = "None"
     config["tea_cache_steps"] = None if mode == 2 else int(random.randrange(5, 51, 5)) if config["cache_type"] == "TeaCache" else None
     config["tea_cache_rel_l1_thresh"] = None if mode == 2 else round_nearest(round(random.uniform(0.01, 1), 2), 0.05, 2) if config["cache_type"] == "TeaCache" else None
     config["mag_cache_threshold"] = None if mode == 2 else round_nearest(round(random.uniform(0.01, 1), 2), 0.05, 2) if config["cache_type"] == "MagCache" else None
@@ -428,12 +429,13 @@ def get_config(mode, image, video):
         lora_weights[idx] = str(round_nearest(round(random.uniform(0.05, 2), 2), 0.05, 2))
 
     #framepack_resolution = random.choice([[384,640],[512,768]])
-    framepack_resolution = random.choice([[32,32]])
+    framepack_resolution = [384,640]
 
     output_loras = random.sample(list(LORAS.keys()), random.randint(2, 10))
     #output_loras = random.choice(list(LORAS.keys()))
 
-    config["lora"] = output_loras
+    
+    config["lora"] = None #config["lora"] = output_loras
     config["lora_weight"] = lora_weights
     config["gen_photo"] = gen_photo
     config["skipped"] = None
@@ -473,7 +475,7 @@ def start_video_gen_framepack(client, config, photo_init, video_init, prompt):
         param_21=4,
         param_22="Noise",
         param_23=True,
-        param_24=config["lora"] if config["lora"] is not None and len(config["lora"]) > 0 else [],
+        param_24=config["lora"] if "lora" in config and config["lora"] is not None and len(config["lora"]) > 0 else [],
         param_25=config['width'],
         param_26=config['height'],
         param_27=True,
@@ -715,8 +717,8 @@ def get_video_framepack(mode, photo_init, video_init, config, prompt):
                 monitor_result = None
                 
                 try:
-                    c_timeout = (config["requested_seconds"]*1800)
-                    if config["lora"] is not None and len(config["lora"]) != 0:
+                    c_timeout = (config["requested_seconds"]*600)
+                    if "lora" in config and config["lora"] is not None and len(config["lora"]) != 0:
                         logging.warn("Lora detected, adding some timeout to allow Lora loading")
                         c_timeout = c_timeout + (len(config["lora"]) * 90)
                     logging.warn("Using timeout: %s", str(c_timeout))
@@ -776,7 +778,7 @@ def get_video_wan2gp(mode, photo_init, video_init, config, prompt):
             try:
                 c_timeout = (config["requested_seconds"]*600) + 300
                 c_timeout = 80000
-                if config["lora"] is not None and len(config["lora"]) != 0:
+                if "lora" in config and config["lora"] is not None and len(config["lora"]) != 0:
                     logging.warn("Lora detected, adding some timeout to allow Lora loading")
                     c_timeout = c_timeout + 400
                 logging.warn("Using timeout: %s", str(c_timeout))
@@ -835,6 +837,7 @@ def upscale_and_add_audio(generated_video, config, prompt, start):
 def add_audio(generated_video, config, prompt, start):
     config["status"] = 3
     database.update_config(dbms, config)
+    config = database.select_config_by_id(dbms, config["generation_id"])
     mp4 = add_audio_to_video(generated_video, config, prompt)
     if mp4 is not None:
         logging.warn("Adding audio ok")
@@ -844,7 +847,7 @@ def add_audio(generated_video, config, prompt, start):
         config["status"] = 4
         database.update_config(dbms, config)
         logging.warn("Process complete")
-        return mp4, config
+        return mp4, database.select_config_by_id(dbms, config["generation_id"])
     database.delete_wrong_entries(dbms)
     return None, None
 
@@ -1178,7 +1181,7 @@ def add_config_response_headers(response, generation_id=None, config=None, photo
     elif str(config["cache_type"]) == "TeaCache":
         response.headers['X-AIVG-TeaCache-Steps'] = (str(config["tea_cache_steps"])).encode('utf-8').decode('latin-1') 
         response.headers['X-AIVG-TeaCache-Rel-L1-Thresh'] = (str(config["tea_cache_rel_l1_thresh"])).encode('utf-8').decode('latin-1') 
-    if config["lora"] is not None and len(config["lora"]) > 0:
+    if "lora" in config and config["lora"] is not None and len(config["lora"]) > 0:
         loras = ','.join(config["lora"])
         response.headers['X-AIVG-Lora'] = loras.encode('utf-8').decode('latin-1')
     #    response.headers['X-AIVG-Lora-Weight'] = str(config["lora_weight"]).encode('utf-8').decode('latin-1')
